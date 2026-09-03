@@ -1,0 +1,16 @@
+# Quartus build output
+dni/
+qdb/
+output_files/
+uart_bringup.qsf
+uart_bringup.qpf
+*.rpt
+*.summary
+*.pin
+*.sof
+*.sld
+*.qws
+serv_req_info.txt
+
+# generated IP HDL - keep the ip/<name>/<name>.ip source, drop the generated tree
+ip/*/*/
