@@ -11,3 +11,4 @@ derive_clock_uncertainty
 set_false_path -from [get_ports reset_reset_n]
 set_false_path -from [get_ports uart_rxd]
 set_false_path -to   [get_ports uart_txd]
+set_false_path -to   [get_ports {mkr_d4 mkr_d5 mkr_d6 mkr_d7}]

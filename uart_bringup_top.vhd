@@ -2,15 +2,19 @@
 -- Minimal Agilex 3 UART bring-up build for the Arrow AXC3000 board.
 --
 -- Scope: the UART communication block (source/fpga_communication), a
--- 100 MHz IOPLL, and one FP32 fused multiply-add DSP (the same
+-- 100 MHz IOPLL, one FP32 fused multiply-add DSP (the same
 -- multiply_add(agilex) / native_fp32 module the ../quartus_pro build
--- uses).  No power stage, no measurements, no microprocessors.
+-- uses), and 4 x 100 kHz PWM channels on the Arduino MKR header.
 --
--- Board / pinout taken from the Arrow AXC3000 NIOSV_lab:
+-- Board / pinout taken from the Arrow AXC3000 NIOSV_lab + docs/mkr_pinout.md:
 --   clk_clk       PIN_A7    1.3-V LVCMOS   25 MHz oscillator
 --   reset_reset_n PIN_A12   1.3-V LVCMOS   active low, weak pull-up
 --   uart_rxd      PIN_AG23  3.3-V LVCMOS
 --   uart_txd      PIN_AG24  3.3-V LVCMOS
+--   mkr_d4        PIN_AF19  3.3-V LVCMOS   PWM0  (MKR J1-13)
+--   mkr_d5        PIN_AG20  3.3-V LVCMOS   PWM1  (MKR J1-14)
+--   mkr_d6        PIN_AK19  3.3-V LVCMOS   PWM2  (MKR J2-1)
+--   mkr_d7        PIN_AJ19  3.3-V LVCMOS   PWM3  (MKR J2-2)
 --
 -- Clocking:  25 MHz clk_clk -> pll_100 IOPLL -> 100 MHz core_clock.
 -- The UART and register logic run on core_clock:
@@ -26,7 +30,14 @@
 --   addr 51: FMA operand b (fp32 mult_b)    (read / write)
 --   addr 52: FMA operand c (fp32 adder_a)   (read / write)
 --   addr 53: FMA result  a*b + c  (fp32)    (read only)
--- Operands/result are raw IEEE-754 binary32 bit patterns.
+--   addr 60: PWM0 duty (mkr_d4)             (read / write)
+--   addr 61: PWM1 duty (mkr_d5)             (read / write)
+--   addr 62: PWM2 duty (mkr_d6)             (read / write)
+--   addr 63: PWM3 duty (mkr_d7)             (read / write)
+-- FMA operands/result are raw IEEE-754 binary32 bit patterns.
+-- PWM: 100 MHz core clock / 1000 = 100 kHz.  Duty register holds the
+-- number of core-clock cycles the output is high per 1000-cycle period,
+-- i.e. tenths of a percent (100 = 10.0%).  Resets to 100/200/300/400.
 ------------------------------------------------------------------------
 library ieee;
     use ieee.std_logic_1164.all;
@@ -42,6 +53,10 @@ entity uart_bringup_top is
         ;reset_reset_n : in  std_logic   -- active low (PIN_A12)
         ;uart_rxd      : in  std_logic   -- PIN_AG23
         ;uart_txd      : out std_logic   -- PIN_AG24
+        ;mkr_d4        : out std_logic   -- PIN_AF19  PWM0
+        ;mkr_d5        : out std_logic   -- PIN_AG20  PWM1
+        ;mkr_d6        : out std_logic   -- PIN_AK19  PWM2
+        ;mkr_d7        : out std_logic   -- PIN_AJ19  PWM3
     );
 end entity uart_bringup_top;
 
@@ -84,6 +99,23 @@ architecture rtl of uart_bringup_top is
 
     signal loopback_register : std_logic_vector(31 downto 0) := (others => '0');
     signal read_counter      : std_logic_vector(31 downto 0) := (others => '0');
+
+    -- 4 x 100 kHz PWM on mkr_d4..d7
+    constant c_pwm_period : natural := 1000;   -- 100 MHz / 1000 = 100 kHz
+
+    type slv32_array is array (natural range <>) of std_logic_vector(31 downto 0);
+    function init_duty return slv32_array is
+        variable v : slv32_array(0 to 3);
+    begin
+        for i in 0 to 3 loop
+            v(i) := std_logic_vector(to_unsigned((i + 1) * c_pwm_period / 10, 32));  -- 10/20/30/40 %
+        end loop;
+        return v;
+    end function;
+
+    signal pwm_duty    : slv32_array(0 to 3) := init_duty;
+    signal pwm_counter : natural range 0 to c_pwm_period - 1 := 0;
+    signal pwm_out     : std_logic_vector(3 downto 0) := (others => '0');
 
 begin
 
@@ -136,6 +168,12 @@ begin
             connect_data_to_address(bus_from_communications, bus_from_top, 52, fp_c);
             connect_read_only_data_to_address(bus_from_communications, bus_from_top, 53, get_mpya_result(fma_out));
 
+            -- PWM duty registers (mkr_d4..d7)
+            connect_data_to_address(bus_from_communications, bus_from_top, 60, pwm_duty(0));
+            connect_data_to_address(bus_from_communications, bus_from_top, 61, pwm_duty(1));
+            connect_data_to_address(bus_from_communications, bus_from_top, 62, pwm_duty(2));
+            connect_data_to_address(bus_from_communications, bus_from_top, 63, pwm_duty(3));
+
             bus_to_communications <= bus_from_top;
 
             if system_reset = '1' then
@@ -144,6 +182,7 @@ begin
                 fp_a                  <= (others => '0');
                 fp_b                  <= (others => '0');
                 fp_c                  <= (others => '0');
+                pwm_duty              <= init_duty;
                 bus_to_communications <= init_fpga_interconnect;
             end if;
         end if;
@@ -179,5 +218,32 @@ begin
         ,mpya_in  => fma_in
         ,mpya_out => fma_out
     );
+
+------------------------------------------------------------------------
+    -- 4 x 100 kHz edge-aligned PWM.  Output high while the free-running
+    -- 0..999 counter is below the channel duty value.
+    pwm_gen : process (core_clock) is
+    begin
+        if rising_edge(core_clock) then
+            if pwm_counter = c_pwm_period - 1 then
+                pwm_counter <= 0;
+            else
+                pwm_counter <= pwm_counter + 1;
+            end if;
+
+            for i in 0 to 3 loop
+                if to_unsigned(pwm_counter, 32) < unsigned(pwm_duty(i)) then
+                    pwm_out(i) <= '1';
+                else
+                    pwm_out(i) <= '0';
+                end if;
+            end loop;
+        end if;
+    end process pwm_gen;
+
+    mkr_d4 <= pwm_out(0);
+    mkr_d5 <= pwm_out(1);
+    mkr_d6 <= pwm_out(2);
+    mkr_d7 <= pwm_out(3);
 
 end rtl;

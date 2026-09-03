@@ -69,9 +69,19 @@ python test_hw.py COM6 115200
 | 51 | FP32 FMA operand b — `fp32_mult_b` (R/W) |
 | 52 | FP32 FMA operand c — `fp32_adder_a` (R/W) |
 | 53 | FP32 FMA result `a*b + c` (RO) |
+| 60 | PWM0 duty — `mkr_d4` (R/W) |
+| 61 | PWM1 duty — `mkr_d5` (R/W) |
+| 62 | PWM2 duty — `mkr_d6` (R/W) |
+| 63 | PWM3 duty — `mkr_d7` (R/W) |
 
-Operands / result are raw IEEE-754 binary32 bit patterns — use `setf`/`getf`
-in `test_hw.py`, or `struct.pack('!f', x)`.
+FMA operands / result are raw IEEE-754 binary32 bit patterns — use
+`setf`/`getf` in `test_hw.py`, or `struct.pack('!f', x)`.
+
+PWM: 100 MHz core clock / 1000 → **100 kHz**, edge-aligned. Duty register
+holds high-time in core-clock cycles per 1000-cycle period, i.e. tenths of
+a percent (`100` = 10.0 %). Resets to 100 / 200 / 300 / 400
+(10 / 20 / 30 / 40 %). Outputs on MKR `D4`–`D7` (`AF19` / `AG20` / `AK19`
+/ `AJ19`).
 
 ## Pinout
 

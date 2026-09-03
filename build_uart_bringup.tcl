@@ -105,13 +105,27 @@ set_location_assignment PIN_A12  -to reset_reset_n -comment IOBANK_3A_B
 set_location_assignment PIN_AG23 -to uart_rxd      -comment IOBANK_5A
 set_location_assignment PIN_AG24 -to uart_txd      -comment IOBANK_5A
 
+# Arduino MKR header D4..D7 (see docs/mkr_pinout.md)
+set_location_assignment PIN_AF19 -to mkr_d4        -comment IOBANK_5A
+set_location_assignment PIN_AG20 -to mkr_d5        -comment IOBANK_5A
+set_location_assignment PIN_AK19 -to mkr_d6        -comment IOBANK_5B
+set_location_assignment PIN_AJ19 -to mkr_d7        -comment IOBANK_5A
+
 set_instance_assignment -name IO_STANDARD "1.3-V LVCMOS" -to clk_clk       -entity uart_bringup_top
 set_instance_assignment -name IO_STANDARD "1.3-V LVCMOS" -to reset_reset_n -entity uart_bringup_top
 set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to uart_rxd      -entity uart_bringup_top
 set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to uart_txd      -entity uart_bringup_top
+set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to mkr_d4        -entity uart_bringup_top
+set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to mkr_d5        -entity uart_bringup_top
+set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to mkr_d6        -entity uart_bringup_top
+set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to mkr_d7        -entity uart_bringup_top
 
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to reset_reset_n -entity uart_bringup_top
 set_instance_assignment -name CURRENT_STRENGTH_NEW 6MA -to uart_txd      -entity uart_bringup_top
+set_instance_assignment -name CURRENT_STRENGTH_NEW 6MA -to mkr_d4        -entity uart_bringup_top
+set_instance_assignment -name CURRENT_STRENGTH_NEW 6MA -to mkr_d5        -entity uart_bringup_top
+set_instance_assignment -name CURRENT_STRENGTH_NEW 6MA -to mkr_d6        -entity uart_bringup_top
+set_instance_assignment -name CURRENT_STRENGTH_NEW 6MA -to mkr_d7        -entity uart_bringup_top
 
 # --------------------------------------------------------------- commit
 export_assignments
