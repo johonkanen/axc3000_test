@@ -30,6 +30,8 @@
 --   addr 51: FMA operand b (fp32 mult_b)    (read / write)
 --   addr 52: FMA operand c (fp32 adder_a)   (read / write)
 --   addr 53: FMA result  a*b + c  (fp32)    (read only)
+--   addr 54: measured FMA pipeline latency  (read only, core-clock edges)
+--   addr 55: write -> run the latency probe  (write only)
 --   addr 60: PWM0 duty (mkr_d4)             (read / write)
 --   addr 61: PWM1 duty (mkr_d5)             (read / write)
 --   addr 62: PWM2 duty (mkr_d6)             (read / write)
@@ -88,6 +90,26 @@ architecture rtl of uart_bringup_top is
     signal fp_a : std_logic_vector(31 downto 0) := (others => '0');
     signal fp_b : std_logic_vector(31 downto 0) := (others => '0');
     signal fp_c : std_logic_vector(31 downto 0) := (others => '0');
+
+    -- FMA latency probe: on a write to addr 55 it drives (1.0, 8.0, 0.0)
+    -- -> result 8.0, then steps mult_a to 8.0 and counts core_clock
+    -- edges until the result reads 64.0.  Result at addr 54.
+    constant c_fma_a0  : std_logic_vector(31 downto 0) := x"3F800000";  -- 1.0
+    constant c_fma_a1  : std_logic_vector(31 downto 0) := x"41000000";  -- 8.0
+    constant c_fma_b   : std_logic_vector(31 downto 0) := x"41000000";  -- 8.0
+    constant c_fma_c   : std_logic_vector(31 downto 0) := x"00000000";  -- 0.0
+    constant c_fma_r0  : std_logic_vector(31 downto 0) := x"41000000";  -- 1.0*8 + 0 =  8.0
+    constant c_fma_r1  : std_logic_vector(31 downto 0) := x"42800000";  -- 8.0*8 + 0 = 64.0
+
+    type probe_state_t is (P_IDLE, P_SETTLE, P_MEASURE, P_DONE);
+    signal probe_state   : probe_state_t := P_IDLE;
+    signal probe_active  : std_logic := '0';
+    signal probe_a       : std_logic_vector(31 downto 0) := c_fma_a0;
+    signal probe_wait    : natural range 0 to 63 := 0;
+    signal probe_count   : natural range 0 to 63 := 0;
+    signal probe_latency : std_logic_vector(31 downto 0) := (others => '0');
+    signal probe_trig    : std_logic := '0';   -- toggles on write to 55 (test_registers)
+    signal probe_seen    : std_logic := '0';   -- follows probe_trig (probe fsm)
 
     -- synchronous, active-high reset: PLL not locked / power-on / button
     signal por_counter  : natural range 0 to 1_048_575 := 1_048_575;
@@ -172,6 +194,10 @@ begin
             connect_data_to_address(bus_from_communications, bus_from_top, 51, fp_b);
             connect_data_to_address(bus_from_communications, bus_from_top, 52, fp_c);
             connect_read_only_data_to_address(bus_from_communications, bus_from_top, 53, get_mpya_result(fma_out));
+            connect_read_only_data_to_address(bus_from_communications, bus_from_top, 54, probe_latency);
+            if write_is_requested_to_address(bus_from_communications, 55) then
+                probe_trig <= not probe_trig;
+            end if;
 
             -- PWM duty registers (mkr_d4..d7)
             connect_data_to_address(bus_from_communications, bus_from_top, 60, pwm_duty(0));
@@ -209,12 +235,11 @@ begin
 
 ------------------------------------------------------------------------
     -- FP32 fused multiply-add DSP (native_fp32 hard-float IP).
-    -- Operands are driven continuously from the registers; result
-    -- settles a few core_clock cycles after any operand write, long
-    -- before software reads it back over UART.
-    fma_in.mpy_a        <= fp_a;
-    fma_in.mpy_b        <= fp_b;
-    fma_in.add_a        <= fp_c;
+    -- Operands come from the a/b/c registers, except while the latency
+    -- probe has taken over (probe_active).
+    fma_in.mpy_a        <= probe_a  when probe_active = '1' else fp_a;
+    fma_in.mpy_b        <= c_fma_b  when probe_active = '1' else fp_b;
+    fma_in.add_a        <= c_fma_c  when probe_active = '1' else fp_c;
     fma_in.is_requested <= '1';
 
     u_fma : entity work.multiply_add(agilex)
@@ -223,6 +248,58 @@ begin
         ,mpya_in  => fma_in
         ,mpya_out => fma_out
     );
+
+------------------------------------------------------------------------
+    -- FMA hardware-latency probe.  Measures core_clock edges from a step
+    -- on mult_a to the new value appearing at the result, and parks it in
+    -- probe_latency (addr 54).  Compare with the 3-cycle model in
+    -- source/hVHDL_floating_point/.../sim_native_fp32.vhd.
+    fma_latency_probe : process (core_clock) is
+    begin
+        if rising_edge(core_clock) then
+            case probe_state is
+                when P_IDLE =>
+                    probe_active <= '0';
+                    if probe_trig /= probe_seen then
+                        probe_seen   <= probe_trig;
+                        probe_a      <= c_fma_a0;
+                        probe_active <= '1';
+                        probe_wait   <= 63;
+                        probe_state  <= P_SETTLE;
+                    end if;
+
+                when P_SETTLE =>                    -- let the result reach c_fma_r0
+                    if probe_wait = 0 then
+                        probe_a     <= c_fma_a1;    -- the step
+                        probe_count <= 0;
+                        probe_state <= P_MEASURE;
+                    else
+                        probe_wait <= probe_wait - 1;
+                    end if;
+
+                when P_MEASURE =>
+                    if get_mpya_result(fma_out) = c_fma_r1 then
+                        probe_latency <= std_logic_vector(to_unsigned(probe_count, 32));
+                        probe_state   <= P_DONE;
+                    elsif probe_count = 63 then
+                        probe_latency <= x"FFFFFFFF";   -- did not settle
+                        probe_state   <= P_DONE;
+                    else
+                        probe_count <= probe_count + 1;
+                    end if;
+
+                when P_DONE =>
+                    probe_active <= '0';
+                    probe_state  <= P_IDLE;
+            end case;
+
+            if system_reset = '1' then
+                probe_state  <= P_IDLE;
+                probe_active <= '0';
+                probe_seen   <= probe_trig;
+            end if;
+        end if;
+    end process fma_latency_probe;
 
 ------------------------------------------------------------------------
     -- 4 x 100 kHz centre-aligned PWM.  A triangle carrier ramps

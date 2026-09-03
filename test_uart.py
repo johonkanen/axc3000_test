@@ -17,6 +17,8 @@ Register map (see uart_bringup_top.vhd):
     51  FMA operand b                                RW
     52  FMA operand c                                RW
     53  FMA result    a*b + c  (fp32)                RO
+    54  measured FMA pipeline latency (clocks)       RO
+    55  write -> run the latency probe               WO
     60  PWM0 duty (mkr_d4)  tenths of a percent      RW
     61  PWM1 duty (mkr_d5)                           RW
     62  PWM2 duty (mkr_d6)                           RW
@@ -158,6 +160,26 @@ def test_fma(u, r):
         u.write(addr, 0)
 
 
+def test_fma_latency(u, r):
+    print("FMA pipeline latency probe (addr 55 trigger, addr 54 result)")
+    runs = []
+    for _ in range(3):
+        u.write(55, 1)
+        time.sleep(0.05)
+        runs.append(u.read(54))
+    stable = len(set(runs)) == 1 and runs[0] not in (0, 0xFFFFFFFF)
+    r.check("probe returns a stable value", stable, f"{runs}")
+    if stable:
+        lat = runs[0]
+        # real native_fp32.ip config = input reg + output reg only -> 2
+        r.check(
+            "hardware latency == 2 (matches the IP register config)",
+            lat == 2,
+            f"{lat} core-clock edges  "
+            f"(sim_native_fp32.vhd models {3}; see sim/fma_latency_tb.vhd)",
+        )
+
+
 def test_pwm(u, r):
     print("PWM duty registers (addr 60-63)")
     defaults = {a: u.read(a) for a in PWM_DEFAULTS}
@@ -195,6 +217,7 @@ def main():
             test_loopback,
             test_read_counter,
             test_fma,
+            test_fma_latency,
             test_pwm,
         ):
             t(u, r)
