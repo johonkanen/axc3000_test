@@ -22,10 +22,14 @@ Register map (see uart_bringup_top.vhd):
     56  float->fixed input (fp32)                    RW
     57  fixed-point result (signed int)             RO  (= trunc(float * 2**radix))
     58  float->fixed radix                           RW  (default 10)
-    60  PWM0 duty (mkr_d4)  tenths of a percent      RW
-    61  PWM1 duty (mkr_d5)                           RW
-    62  PWM2 duty (mkr_d6)                           RW
-    63  PWM3 duty (mkr_d7)                           RW
+    60  PWM0 duty (mkr_d4), integer 0..1024          RO
+    61  PWM1 duty (mkr_d5), integer 0..1024          RO
+    62  PWM2 duty (mkr_d6), integer 0..1024          RO
+    63  PWM3 duty (mkr_d7), integer 0..1024          RO
+    64  PWM0 duty ratio as a float [0,1] (fp32)      RW
+    65  PWM1 duty ratio as a float [0,1] (fp32)      RW
+    66  PWM2 duty ratio as a float [0,1] (fp32)      RW
+    67  PWM3 duty ratio as a float [0,1] (fp32)      RW
 
 Exit status: 0 = all tests passed, 1 = one or more failed.
 """
@@ -45,7 +49,6 @@ ADDR_BYTES = 2
 DATA_BYTES = 4
 FRAME_LEN = 1 + ADDR_BYTES + DATA_BYTES
 
-PWM_DEFAULTS = {60: 100, 61: 200, 62: 300, 63: 400}
 
 
 class Uart:
@@ -221,23 +224,33 @@ def test_float_to_fixed_radix(u, r):
     r.info("radix register restored to 10")
 
 
+PWM_PERIOD = 1024   # 100 MHz / 1024 = 97.66 kHz
+
+
 def test_pwm(u, r):
-    print("PWM duty registers (addr 60-63)")
-    defaults = {a: u.read(a) for a in PWM_DEFAULTS}
-    if defaults == PWM_DEFAULTS:
-        r.check("reset defaults 100/200/300/400", True, f"{list(defaults.values())}")
+    print("PWM duty from float (write addr 64-67, read integer duty 60-63)")
+    defaults = [u.read(a) for a in (60, 61, 62, 63)]
+    exp_def = [int(x * PWM_PERIOD) for x in (0.1, 0.2, 0.3, 0.4)]
+    if all(abs(d - e) <= 1 for d, e in zip(defaults, exp_def)):
+        r.check(f"reset defaults ~{exp_def}", True, f"{defaults}")
     else:
-        r.info(
-            f"duty regs not at reset defaults ({list(defaults.values())}) - "
-            "board already poked, skipping the defaults check"
-        )
-    for addr, val in ((60, 0), (61, 500), (62, 750), (63, 1000)):
-        u.write(addr, val)
-        got = u.read(addr)
-        r.check(f"addr {addr} <- {val}", got == val, f"read {got}")
-    for addr, val in PWM_DEFAULTS.items():
-        u.write(addr, val)
-    r.info("PWM duty registers restored to 100/200/300/400")
+        r.info(f"duty regs not at reset defaults ({defaults}) - board already poked")
+
+    # write a duty ratio as a float, read the resulting integer duty (0..1024)
+    for ch, x in ((0, 0.0), (1, 0.25), (2, 0.5), (3, 0.95)):
+        u.write(64 + ch, f2i(x))
+        time.sleep(0.02)
+        got = u.read(60 + ch)
+        exp = int(x * PWM_PERIOD)          # float_to_fixed truncates
+        r.check(f"ch{ch}  {x:.2f} -> duty {got}", abs(got - exp) <= 2, f"expected ~{exp}")
+
+    # float readback
+    u.write(64, f2i(0.5))
+    r.check("addr 64 float readback", abs(i2f(u.read(64)) - 0.5) < 1e-6, f"{i2f(u.read(64))}")
+
+    for ch, x in ((0, 0.1), (1, 0.2), (2, 0.3), (3, 0.4)):
+        u.write(64 + ch, f2i(x))
+    r.info("PWM duty ratios restored to 0.1/0.2/0.3/0.4")
 
 
 def main():

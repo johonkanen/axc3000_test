@@ -35,20 +35,25 @@
 --   addr 56: float->fixed input (fp32)      (read / write)
 --   addr 57: fixed-point result             (read only, signed integer)
 --   addr 58: float->fixed radix             (read / write, default 10)
---   addr 60: PWM0 duty (mkr_d4)             (read / write)
---   addr 61: PWM1 duty (mkr_d5)             (read / write)
---   addr 62: PWM2 duty (mkr_d6)             (read / write)
---   addr 63: PWM3 duty (mkr_d7)             (read / write)
+--   addr 60: PWM0 duty (mkr_d4), 0..1024     (read only, cycles high / period)
+--   addr 61: PWM1 duty (mkr_d5), 0..1024     (read only)
+--   addr 62: PWM2 duty (mkr_d6), 0..1024     (read only)
+--   addr 63: PWM3 duty (mkr_d7), 0..1024     (read only)
+--   addr 64: PWM0 duty as a float [0,1] (fp32) (read / write)
+--   addr 65: PWM1 duty as a float [0,1] (fp32) (read / write)
+--   addr 66: PWM2 duty as a float [0,1] (fp32) (read / write)
+--   addr 67: PWM3 duty as a float [0,1] (fp32) (read / write)
 -- FMA operands/result and addr 56 are raw IEEE-754 binary32 bit patterns.
 -- Float->fixed (addr 56/57/58): the float_to_fixed entity (abstract
 -- interface, multiply_add style; hfloat ref + pipeline depth are
 -- generics, radix travels in the request record from addr 58).
 -- fixed = trunc(float * 2**radix); at radix 10, [0,1] -> [0, 1024].
--- PWM: 100 MHz core clock / 1000 = 100 kHz, CENTRE-aligned (triangle
--- carrier - all four pulses centred on the same instant).  Duty register
--- holds the number of core-clock cycles high per 1000-cycle period, i.e.
--- tenths of a percent (100 = 10.0%); centre alignment makes the effective
--- step 0.2%.  Resets to 100/200/300/400.
+-- PWM: 100 MHz core clock / 1024 = 97.66 kHz, CENTRE-aligned (triangle
+-- carrier - all four pulses centred on the same instant).  Write a float
+-- in [0,1] to addr 64..67; float_to_fixed converts it at radix 10 to a
+-- 0..1024 duty count (period = 1024), so the fp32 value is the duty ratio
+-- you see on a scope.  Addr 60..63 read that integer back.
+-- Resets to 0.1/0.2/0.3/0.4 (~10/20/30/40 %).
 ------------------------------------------------------------------------
 library ieee;
     use ieee.std_logic_1164.all;
@@ -150,8 +155,12 @@ architecture rtl of uart_bringup_top is
     signal loopback_register : std_logic_vector(31 downto 0) := (others => '0');
     signal read_counter      : std_logic_vector(31 downto 0) := (others => '0');
 
-    -- 4 x 100 kHz centre-aligned PWM on mkr_d4..d7
-    constant c_pwm_period : natural := 1000;   -- 100 MHz / 1000 = 100 kHz
+    -- 4 x centre-aligned PWM on mkr_d4..d7.  Period is 1024 core-clock
+    -- cycles (2**c_pwm_radix) so a float [0,1] converted at radix
+    -- c_pwm_radix maps straight to the duty count with no scaling
+    -- multiply: 100 MHz / 1024 = 97.66 kHz.
+    constant c_pwm_radix  : natural := 10;
+    constant c_pwm_period : natural := 2 ** c_pwm_radix;   -- 1024
     constant c_pwm_half   : natural := c_pwm_period / 2;
 
     type slv32_array is array (natural range <>) of std_logic_vector(31 downto 0);
@@ -159,12 +168,40 @@ architecture rtl of uart_bringup_top is
         variable v : slv32_array(0 to 3);
     begin
         for i in 0 to 3 loop
-            v(i) := std_logic_vector(to_unsigned((i + 1) * c_pwm_period / 10, 32));  -- 10/20/30/40 %
+            v(i) := std_logic_vector(to_unsigned((i + 1) * c_pwm_period / 10, 32));  -- ~10/20/30/40 %
         end loop;
         return v;
     end function;
 
-    signal pwm_duty : slv32_array(0 to 3) := init_duty;
+    -- fp32 patterns for 0.1 / 0.2 / 0.3 / 0.4 (the reset duty ratios)
+    function init_pwm_float return slv32_array is
+        constant v : slv32_array(0 to 3) :=
+            (x"3DCCCCCD", x"3E4CCCCD", x"3E99999A", x"3ECCCCCD");
+    begin
+        return v;
+    end function;
+
+    -- clamp the radix-c_pwm_radix fixed-point value to a 0..c_pwm_period duty
+    function clamp_duty (f : signed) return natural is
+        variable v : integer := to_integer(f);
+    begin
+        if v < 0 then
+            v := 0;
+        elsif v > c_pwm_period then
+            v := c_pwm_period;
+        end if;
+        return v;
+    end function;
+
+    signal pwm_float : slv32_array(0 to 3) := init_pwm_float;   -- addr 64..67, fp32
+    signal pwm_duty  : slv32_array(0 to 3) := init_duty;        -- addr 60..63, 0..1024
+
+    -- one float_to_fixed converter per PWM channel
+    type f2f_in_array  is array (natural range <>) of f2f_ref.f2f_in'subtype;
+    type f2f_out_array is array (natural range <>) of f2f_ref.f2f_out'subtype;
+    signal pwm_f2f_in  : f2f_in_array (0 to 3) := (others => f2f_ref.f2f_in);
+    signal pwm_f2f_out : f2f_out_array(0 to 3) := (others => f2f_ref.f2f_out);
+
     -- triangle (up/down) carrier: 0 -> c_pwm_half -> 0 = one 100 kHz period
     signal pwm_tri  : natural range 0 to c_pwm_half := 0;
     signal pwm_up   : std_logic := '1';
@@ -231,11 +268,16 @@ begin
             connect_read_only_data_to_address(bus_from_communications, bus_from_top, 57, fixed_conv_out);
             connect_data_to_address(bus_from_communications, bus_from_top, 58, conv_radix);
 
-            -- PWM duty registers (mkr_d4..d7)
-            connect_data_to_address(bus_from_communications, bus_from_top, 60, pwm_duty(0));
-            connect_data_to_address(bus_from_communications, bus_from_top, 61, pwm_duty(1));
-            connect_data_to_address(bus_from_communications, bus_from_top, 62, pwm_duty(2));
-            connect_data_to_address(bus_from_communications, bus_from_top, 63, pwm_duty(3));
+            -- PWM: read the integer duty (0..1000) at 60..63, write the
+            -- duty ratio as a float [0,1] at 64..67
+            connect_read_only_data_to_address(bus_from_communications, bus_from_top, 60, pwm_duty(0));
+            connect_read_only_data_to_address(bus_from_communications, bus_from_top, 61, pwm_duty(1));
+            connect_read_only_data_to_address(bus_from_communications, bus_from_top, 62, pwm_duty(2));
+            connect_read_only_data_to_address(bus_from_communications, bus_from_top, 63, pwm_duty(3));
+            connect_data_to_address(bus_from_communications, bus_from_top, 64, pwm_float(0));
+            connect_data_to_address(bus_from_communications, bus_from_top, 65, pwm_float(1));
+            connect_data_to_address(bus_from_communications, bus_from_top, 66, pwm_float(2));
+            connect_data_to_address(bus_from_communications, bus_from_top, 67, pwm_float(3));
 
             bus_to_communications <= bus_from_top;
 
@@ -247,7 +289,7 @@ begin
                 fp_c                  <= (others => '0');
                 fp_conv_in            <= (others => '0');
                 conv_radix            <= std_logic_vector(to_unsigned(c_conv_radix, 32));
-                pwm_duty              <= init_duty;
+                pwm_float             <= init_pwm_float;
                 bus_to_communications <= init_fpga_interconnect;
             end if;
         end if;
@@ -364,14 +406,41 @@ begin
         end if;
     end process float_to_fixed;
 
+------------------------------------------------------------------------
+    -- PWM duty from a float: one float_to_fixed converter per channel.
+    -- The fp32 at addr 64+i is converted at radix c_pwm_radix and scaled
+    -- to 0..c_pwm_period, so writing 0.25 gives a 25 % duty cycle.
+    gen_pwm_convert : for i in 0 to 3 generate
+        u_pwm_f2f : entity work.float_to_fixed
+            generic map (g_stages => c_conv_stages)
+            port map (
+                clock              => core_clock,
+                float_to_fixed_in  => pwm_f2f_in(i),
+                float_to_fixed_out => pwm_f2f_out(i)
+            );
+
+        pwm_conv : process (core_clock) is
+        begin
+            if rising_edge(core_clock) then
+                request_float_to_fixed(pwm_f2f_in(i),
+                    fp32_to_hfloat(pwm_float(i)), c_pwm_radix);
+                pwm_duty(i) <= std_logic_vector(
+                    to_unsigned(clamp_duty(get_fixed_result(pwm_f2f_out(i))), 32));
+
+                if system_reset = '1' then
+                    pwm_duty(i) <= init_duty(i);
+                end if;
+            end if;
+        end process pwm_conv;
+    end generate gen_pwm_convert;
 
 ------------------------------------------------------------------------
-    -- 4 x 100 kHz centre-aligned PWM.  A triangle carrier ramps
+    -- 4 x 97.66 kHz centre-aligned PWM.  A triangle carrier ramps
     -- 0 -> c_pwm_half -> 0 over one period; each output is high while the
-    -- carrier is below (duty / 2), so the pulse is centred on the carrier
-    -- minimum and all four channels are aligned there.  Duty register is
-    -- still "high cycles per 1000-cycle period" (LSB = 0.1 %); centre
-    -- alignment costs one bit of resolution (effective step 0.2 %).
+    -- carrier is below (pwm_duty / 2), so the pulse is centred on the
+    -- carrier minimum and all four channels are aligned there.  pwm_duty is
+    -- "high cycles per 1024-cycle period" (0..1024); centre alignment
+    -- costs one bit of resolution.
     pwm_gen : process (core_clock) is
         variable du  : unsigned(31 downto 0);
         variable cmp : natural range 0 to c_pwm_half;

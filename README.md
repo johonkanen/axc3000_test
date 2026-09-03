@@ -75,10 +75,14 @@ PWM duty registers. Exit status 0 = all passed.
 | 56 | float→fixed input — fp32 bit pattern (R/W) |
 | 57 | fixed-point result = `trunc(float · 2^radix)` (RO, signed) |
 | 58 | float→fixed radix (R/W, default 10) |
-| 60 | PWM0 duty — `mkr_d4` (R/W) |
-| 61 | PWM1 duty — `mkr_d5` (R/W) |
-| 62 | PWM2 duty — `mkr_d6` (R/W) |
-| 63 | PWM3 duty — `mkr_d7` (R/W) |
+| 60 | PWM0 duty count, 0..1024 — `mkr_d4` (RO) |
+| 61 | PWM1 duty count, 0..1024 — `mkr_d5` (RO) |
+| 62 | PWM2 duty count, 0..1024 — `mkr_d6` (RO) |
+| 63 | PWM3 duty count, 0..1024 — `mkr_d7` (RO) |
+| 64 | PWM0 duty ratio as a float `[0,1]` — fp32 (R/W) |
+| 65 | PWM1 duty ratio as a float `[0,1]` — fp32 (R/W) |
+| 66 | PWM2 duty ratio as a float `[0,1]` — fp32 (R/W) |
+| 67 | PWM3 duty ratio as a float `[0,1]` — fp32 (R/W) |
 
 FMA operands / result and the addr 56 input are raw IEEE-754 binary32 bit
 patterns — use `struct.pack('!f', x)` / `struct.unpack`.
@@ -117,17 +121,21 @@ input registers, the `adder_input` register (`adder_input_clken = 0`), and
 the output register. `sim/fma_latency_tb.vhd` runs the identical probe
 against the model. (With `adder_input` disabled the hardware measures 2.)
 
-PWM: 100 MHz core clock / 1000 → **100 kHz**, **centre-aligned** (triangle
-carrier — all four pulses centred on the same instant). Duty register
-holds high-time in core-clock cycles per 1000-cycle period, i.e. tenths of
-a percent (`100` = 10.0 %; centre alignment makes the effective step
-0.2 %). Resets to 100 / 200 / 300 / 400 (10 / 20 / 30 / 40 %). Outputs on
-MKR `D4`–`D7` (`AF19` / `AG20` / `AK19` / `AJ19`).
+**PWM from a float** (addr 64–67 → 60–63): write a duty ratio in `[0,1]` as
+an fp32 to addr 64+ch; a per-channel `float_to_fixed` converts it at radix
+10 to a 0–1024 duty count (period = 1024), which addr 60+ch reads back. So
+`0.25` gives exactly a 25 % duty cycle on the scope. Values are clamped to
+`[0, 1]`; `float_to_fixed` truncates (`0.15 → 153/1024`). Resets to
+0.1 / 0.2 / 0.3 / 0.4.
 
-Scoped on an Analog Discovery Pro 3450: all four channels 100.00 kHz,
-0 → 3.4 V, pulse widths 1 / 2 / 3 / 4 µs (10/20/30/40 %), pulse centres
-aligned across channels to within one 100 MHz clock, duty tracking the
-register within ±0.3 % over a 5–95 % sweep.
+100 MHz core clock / 1024 → **97.66 kHz**, **centre-aligned** (triangle
+carrier — all four pulses centred on the same instant). Outputs on MKR
+`D4`–`D7` (`AF19` / `AG20` / `AK19` / `AJ19`).
+
+Scoped on an Analog Discovery Pro 3450 (earlier 100 kHz / integer-duty
+version): 0 → 3.4 V, pulse centres aligned across channels to within one
+100 MHz clock, duty tracking the register within ±0.3 % over a 5–95 %
+sweep.
 
 ## Pinout
 
