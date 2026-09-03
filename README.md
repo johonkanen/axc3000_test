@@ -52,12 +52,12 @@ Use the cable **index** `-c 1`, not a name. Cable is "USB Blaster III [USB-1]".
 100 MHz core clock / `g_clock_divider` (868) = 115200 baud, 32-bit data words.
 
 ```
-python test_hw.py COM6 115200
->>> uart.request_data_from_address(1)   # -> 44252  (0x0000ACDC)
+python test_uart.py [COM6] [115200]
 ```
 
-(`test_hw.py` / the `uart_link` helper come from the parent project or
-`johonkanen/fpga_uart_pc_software`.)
+`test_uart.py` is self-contained (needs only `pip install pyserial`) and
+exercises every register - id, git hash, loopback, read counter, the FP32
+FMA, and the 4 PWM duty registers. Exit status 0 = all passed.
 
 | addr | meaning |
 |-----:|---------|
