@@ -83,6 +83,9 @@ a percent (`100` = 10.0 %). Resets to 100 / 200 / 300 / 400
 (10 / 20 / 30 / 40 %). Outputs on MKR `D4`–`D7` (`AF19` / `AG20` / `AK19`
 / `AJ19`).
 
+Scoped on an Analog Discovery Pro 3450: all four channels 100.00 kHz,
+0 → 3.4 V, duty within ±0.3 % of the register value across a 5–95 % sweep.
+
 ## Pinout
 
 From `ArrowElectronics/altera_workshops` → `axc3000/NIOSV_lab/completed_lab/NIOSV_lab.qsf`:
