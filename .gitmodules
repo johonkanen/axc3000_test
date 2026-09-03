@@ -1,0 +1,9 @@
+[submodule "source/hVHDL_floating_point"]
+	path = source/hVHDL_floating_point
+	url = https://github.com/hVHDL/hVHDL_floating_point.git
+[submodule "source/hVHDL_uart"]
+	path = source/hVHDL_uart
+	url = https://github.com/hVHDL/hVHDL_uart.git
+[submodule "source/hVHDL_fpga_interconnect"]
+	path = source/hVHDL_fpga_interconnect
+	url = https://github.com/hVHDL/hVHDL_fpga_interconnect.git

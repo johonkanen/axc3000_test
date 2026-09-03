@@ -2,18 +2,29 @@
 
 Minimal Quartus Prime Pro build for the **Arrow AXC3000** (Agilex 3 `A3CY100BM16AE7S`).
 
-Scope: `source/fpga_communication` (UART + `fpga_interconnect` register
-protocol), a **100 MHz IOPLL** (`ip/pll_100`), and one **FP32 fused
-multiply-add DSP** (`ip/native_fp32` + `multiply_add(agilex)` — the same
-float module `../quartus_pro` / `build_agilex_3` uses). No power stage /
-measurements / processors. The full design lives in `../quartus_pro`.
+Scope: a UART + `fpga_interconnect` register block, a **100 MHz IOPLL**
+(`ip/pll_100`), and one **FP32 fused multiply-add DSP** (`ip/native_fp32`
++ `multiply_add(agilex)` — the same `hVHDL_floating_point` module the full
+design uses). No power stage / measurements / processors.
 
 Clocking: 25 MHz `clk_clk` → `pll_100` → 100 MHz `core_clock`; the UART and
 register logic run on `core_clock`, held in reset until `locked`.
 
+## Sources
+
+`source/` holds three submodules and three vendored files:
+
+| path | origin | pinned |
+|------|--------|--------|
+| `source/hVHDL_uart` | `hVHDL/hVHDL_uart` | `ec5a265` |
+| `source/hVHDL_fpga_interconnect` | `hVHDL/hVHDL_fpga_interconnect` | `e5db290` |
+| `source/hVHDL_floating_point` | `hVHDL/hVHDL_floating_point` | `2dac722` |
+| `source/fpga_communication/*.vhd` | vendored from `johonkanen/fpga_communication` `3079c3c` | — |
+
 ## Build (run from this directory)
 
 ```
+git submodule update --init
 quartus_sh  -t build_uart_bringup.tcl
 # regenerate IP HDL (only if ip/<name>/<name>/ is missing) - quartus_syn does NOT do this:
 qsys-generate ip/pll_100/pll_100.ip       --synthesis=VHDL --part=A3CY100BM16AE7S
@@ -41,9 +52,12 @@ Use the cable **index** `-c 1`, not a name. Cable is "USB Blaster III [USB-1]".
 100 MHz core clock / `g_clock_divider` (868) = 115200 baud, 32-bit data words.
 
 ```
-python ../test_hw.py COM6 115200
+python test_hw.py COM6 115200
 >>> uart.request_data_from_address(1)   # -> 44252  (0x0000ACDC)
 ```
+
+(`test_hw.py` / the `uart_link` helper come from the parent project or
+`johonkanen/fpga_uart_pc_software`.)
 
 | addr | meaning |
 |-----:|---------|
@@ -77,9 +91,7 @@ Only the `.ip` files are committed; regenerate the HDL with `qsys-generate`.
 - `ip/pll_100/pll_100.ip` — `altera_iopll`, 25 MHz ref → 100 MHz, `locked`
   used. Created with `ip-deploy` (command in `build_uart_bringup.tcl` header).
 - `ip/native_fp32/native_fp32.ip` — `agilex_native_floating_point_dsp`,
-  `operation_mode = fp32_mult_add`. Copied verbatim from
-  `../quartus_pro/ip/native_fp32/native_fp32.ip` with the device string
-  retargeted to `A3CY100BM16AE7S`. Wrapped by
+  `operation_mode = fp32_mult_add`, device `A3CY100BM16AE7S`. Wrapped by
   `source/hVHDL_floating_point/vhdl2008/altera/multiply_add_arch_agilex.vhd`.
 
 ## Note
