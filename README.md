@@ -132,10 +132,10 @@ an fp32 to addr 64+ch; a per-channel `float_to_fixed` converts it at radix
 carrier — all four pulses centred on the same instant). Outputs on MKR
 `D4`–`D7` (`AF19` / `AG20` / `AK19` / `AJ19`).
 
-Scoped on an Analog Discovery Pro 3450 (earlier 100 kHz / integer-duty
-version): 0 → 3.4 V, pulse centres aligned across channels to within one
-100 MHz clock, duty tracking the register within ±0.3 % over a 5–95 %
-sweep.
+Scoped on an Analog Discovery Pro 3450: all four channels 97.66 kHz,
+centre-aligned; writing 0.15 / 0.35 / 0.60 / 0.85 to addr 64–67 gives
+measured scope duties 0.147 / 0.349 / 0.599 / 0.849, and a 0→1 sweep of
+one channel tracks the written float with ≤ 0.25 % error.
 
 ## Pinout
 
