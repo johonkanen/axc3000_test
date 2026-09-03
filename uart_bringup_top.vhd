@@ -32,17 +32,18 @@
 --   addr 53: FMA result  a*b + c  (fp32)    (read only)
 --   addr 54: measured FMA pipeline latency  (read only, core-clock edges)
 --   addr 55: write -> run the latency probe  (write only)
---   addr 56: float->fixed input (fp32)      (read / write, starts a convert)
---   addr 57: fixed-point result, radix 10   (read only, signed integer)
+--   addr 56: float->fixed input (fp32)      (read / write)
+--   addr 57: fixed-point result             (read only, signed integer)
+--   addr 58: float->fixed radix             (read / write, default 10)
 --   addr 60: PWM0 duty (mkr_d4)             (read / write)
 --   addr 61: PWM1 duty (mkr_d5)             (read / write)
 --   addr 62: PWM2 duty (mkr_d6)             (read / write)
 --   addr 63: PWM3 duty (mkr_d7)             (read / write)
 -- FMA operands/result and addr 56 are raw IEEE-754 binary32 bit patterns.
--- Float->fixed (addr 57): hVHDL_floating_point denormalizer_pkg, radix 10
--- -> fixed = float * 2**10 (truncated), so [0,1] maps to [0, 1024].
--- (Uses the non-generic denormalizer_pkg + a 2-stage pipe config;
---  denormalizer_generic_pkg does not synthesise correctly on Quartus.)
+-- Float->fixed (addr 56/57/58): the float_to_fixed entity (abstract
+-- interface, multiply_add style; hfloat ref + pipeline depth are
+-- generics, radix travels in the request record from addr 58).
+-- fixed = trunc(float * 2**radix); at radix 10, [0,1] -> [0, 1024].
 -- PWM: 100 MHz core clock / 1000 = 100 kHz, CENTRE-aligned (triangle
 -- carrier - all four pulses centred on the same instant).  Duty register
 -- holds the number of core-clock cycles high per 1000-cycle period, i.e.
@@ -83,8 +84,8 @@ architecture rtl of uart_bringup_top is
 
     use work.fpga_interconnect_pkg.all;
     use work.multiply_add_pkg.all;
-    use work.float_type_definitions_pkg.all;   -- hVHDL_floating_point float_record
-    use work.denormalizer_pkg.all;             -- float -> fixed-point conversion
+    use work.float_typedefs_generic_pkg.all;
+    use work.float_to_fixed_pkg.all;
 
     signal core_clock : std_logic;
     signal pll_locked : std_logic;
@@ -121,34 +122,20 @@ architecture rtl of uart_bringup_top is
     signal probe_trig    : std_logic := '0';   -- toggles on write to 55 (test_registers)
     signal probe_seen    : std_logic := '0';   -- follows probe_trig (probe fsm)
 
-    -- float -> fixed-point via the hVHDL_floating_point denormalizer:
-    -- the fp32 value becomes a float_record, then the denormalizer scales
-    -- it to radix c_conv_radix -> fixed = float * 2**radix (truncated), so
-    -- a float in [0,1] maps to [0, 1024].  Pipeline depth is set by the
-    -- denormalizer_with_N_stage_pipe config package in the build.
-    constant c_conv_radix : integer := 10;
+    -- float -> fixed-point: the float_to_fixed entity (abstract interface,
+    -- multiply_add style).  floatref defaults to hfloat32; radix travels in
+    -- the input record, so the one instance converts at any radix.
+    constant c_conv_stages : natural := 2;
+    constant c_conv_radix   : natural := 10;    -- reset value of the radix register
 
-    -- IEEE-754 binary32 slv -> float_record (24-bit mantissa word-length).
-    -- Zero / subnormal, and anything that would scale below 1 LSB, map to
-    -- an exact 0 so the denormalizer never shifts past its exponent field.
-    function fp32_to_float_record (slv : std_logic_vector(31 downto 0)) return float_record is
-        variable r  : float_record := zero;
-        constant be : unsigned(7 downto 0) := unsigned(slv(30 downto 23));
-        constant e  : integer := to_integer(be) - 126;   -- float_record exponent
-    begin
-        if be /= 0 and e > -c_conv_radix then
-            r.sign     := slv(31);
-            r.exponent := to_signed(e, r.exponent'length);
-            r.mantissa := resize(unsigned('1' & slv(22 downto 0)), r.mantissa'length);
-        end if;
-        return r;
-    end function;
+    constant f2f_ref : float_to_fixed_typeref := create_float_to_fixed_typeref(hfloat32);
+    signal   f2f_in  : f2f_ref.f2f_in'subtype  := f2f_ref.f2f_in;
+    signal   f2f_out : f2f_ref.f2f_out'subtype := f2f_ref.f2f_out;
 
-    signal denorm         : denormalizer_record := init_denormalizer;
     signal fp_conv_in     : std_logic_vector(31 downto 0) := (others => '0');  -- addr 56, fp32
+    signal conv_radix     : std_logic_vector(31 downto 0)                      -- addr 58
+                          := std_logic_vector(to_unsigned(c_conv_radix, 32));
     signal fixed_conv_out : std_logic_vector(31 downto 0) := (others => '0');  -- addr 57, signed
-    signal conv_trig      : std_logic := '0';   -- toggles on write to 56 (test_registers)
-    signal conv_seen      : std_logic := '0';
 
     -- synchronous, active-high reset: PLL not locked / power-on / button
     signal por_counter  : natural range 0 to 1_048_575 := 1_048_575;
@@ -238,12 +225,11 @@ begin
                 probe_trig <= not probe_trig;
             end if;
 
-            -- float -> fixed (radix 10): write addr 56, read the result at addr 57
+            -- float -> fixed: write the fp32 to addr 56, the radix to addr 58,
+            -- read the signed result at addr 57
             connect_data_to_address(bus_from_communications, bus_from_top, 56, fp_conv_in);
             connect_read_only_data_to_address(bus_from_communications, bus_from_top, 57, fixed_conv_out);
-            if write_is_requested_to_address(bus_from_communications, 56) then
-                conv_trig <= not conv_trig;
-            end if;
+            connect_data_to_address(bus_from_communications, bus_from_top, 58, conv_radix);
 
             -- PWM duty registers (mkr_d4..d7)
             connect_data_to_address(bus_from_communications, bus_from_top, 60, pwm_duty(0));
@@ -260,6 +246,7 @@ begin
                 fp_b                  <= (others => '0');
                 fp_c                  <= (others => '0');
                 fp_conv_in            <= (others => '0');
+                conv_radix            <= std_logic_vector(to_unsigned(c_conv_radix, 32));
                 pwm_duty              <= init_duty;
                 bus_to_communications <= init_fpga_interconnect;
             end if;
@@ -349,32 +336,33 @@ begin
     end process fma_latency_probe;
 
 ------------------------------------------------------------------------
-    -- float -> fixed-point conversion (hVHDL_floating_point denormalizer).
-    -- A write to addr 56 (IEEE binary32) requests a conversion at radix
-    -- c_conv_radix; the result (float * 2**radix, signed) lands in
-    -- fixed_conv_out / addr 57 after the denormalizer pipeline.
+    -- float -> fixed-point conversion (float_to_fixed entity).  Every
+    -- core-clock edge the fp32 at addr 56 is decoded to an hfloat (glue
+    -- call fp32_to_hfloat) and requested at the current radix (addr 58);
+    -- the signed result trunc(float * 2**radix) lands in fixed_conv_out /
+    -- addr 57 c_conv_stages edges later.  Same instance, any radix.
+    u_float_to_fixed : entity work.float_to_fixed
+        generic map (g_stages => c_conv_stages)     -- floatref defaults to hfloat32
+        port map (
+            clock              => core_clock,
+            float_to_fixed_in  => f2f_in,
+            float_to_fixed_out => f2f_out
+        );
+
     float_to_fixed : process (core_clock) is
     begin
         if rising_edge(core_clock) then
-            create_denormalizer(denorm);
+            request_float_to_fixed(f2f_in,
+                fp32_to_hfloat(fp_conv_in),
+                to_integer(unsigned(conv_radix(5 downto 0))));
 
-            if conv_trig /= conv_seen then
-                conv_seen <= conv_trig;
-                convert_float_to_integer(denorm,
-                    fp32_to_float_record(fp_conv_in), c_conv_radix);
-            end if;
-
-            if denormalizer_is_ready(denorm) then
-                fixed_conv_out <= std_logic_vector(to_signed(get_integer(denorm), 32));
-            end if;
+            fixed_conv_out <= std_logic_vector(get_fixed_result(f2f_out));
 
             if system_reset = '1' then
                 fixed_conv_out <= (others => '0');
-                conv_seen      <= conv_trig;
             end if;
         end if;
     end process float_to_fixed;
-
 
 
 ------------------------------------------------------------------------

@@ -86,13 +86,11 @@ set_global_assignment -name VHDL_FILE $this_file_path/source/hVHDL_floating_poin
 set_global_assignment -name VHDL_FILE $this_file_path/source/hVHDL_floating_point/vhdl2008/multiply_add_entity.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/source/hVHDL_floating_point/vhdl2008/altera/multiply_add_arch_agilex.vhd
 
-# float -> fixed-point conversion (non-generic denormalizer), radix 10.
-# denormalizer_with_N_stage_pipe_pkg sets the pipeline depth (2 here).
-set_global_assignment -name VHDL_FILE $this_file_path/source/hVHDL_floating_point/float_type_definitions/float_word_length_24_bit_pkg.vhd
-set_global_assignment -name VHDL_FILE $this_file_path/source/hVHDL_floating_point/float_type_definitions/float_type_definitions_pkg.vhd
-set_global_assignment -name VHDL_FILE $this_file_path/source/hVHDL_floating_point/float_arithmetic_operations/float_arithmetic_operations_pkg.vhd
-set_global_assignment -name VHDL_FILE $this_file_path/source/hVHDL_floating_point/denormalizer/denormalizer_configuration/denormalizer_with_2_stage_pipe_pkg.vhd
-set_global_assignment -name VHDL_FILE $this_file_path/source/hVHDL_floating_point/denormalizer/denormalizer_pkg.vhd
+# float -> fixed-point conversion: the float_to_fixed entity (abstract
+# interface, multiply_add style; hfloat ref + pipeline depth are generics,
+# radix travels in the request record).  Needs float_typedefs_generic_pkg
+# (added above for the FMA).
+set_global_assignment -name VHDL_FILE $this_file_path/float_to_fixed.vhd
 
 # bring-up top level
 set_global_assignment -name VHDL_FILE $this_file_path/uart_bringup_top.vhd

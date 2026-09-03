@@ -57,7 +57,8 @@ python test_uart.py [COM6] [115200]
 
 `test_uart.py` is self-contained (needs only `pip install pyserial`) and
 exercises every register - id, git hash, loopback, read counter, the FP32
-FMA, and the 4 PWM duty registers. Exit status 0 = all passed.
+FMA, the float→fixed converter (incl. a run-time radix sweep), and the 4
+PWM duty registers. Exit status 0 = all passed.
 
 | addr | meaning |
 |-----:|---------|
@@ -72,7 +73,8 @@ FMA, and the 4 PWM duty registers. Exit status 0 = all passed.
 | 54 | measured FMA pipeline latency, core-clock edges (RO) |
 | 55 | write → run the FMA latency probe (WO) |
 | 56 | float→fixed input — fp32 bit pattern (R/W) |
-| 57 | fixed-point result, radix 10 = `trunc(float · 2¹⁰)` (RO, signed) |
+| 57 | fixed-point result = `trunc(float · 2^radix)` (RO, signed) |
+| 58 | float→fixed radix (R/W, default 10) |
 | 60 | PWM0 duty — `mkr_d4` (R/W) |
 | 61 | PWM1 duty — `mkr_d5` (R/W) |
 | 62 | PWM2 duty — `mkr_d6` (R/W) |
@@ -81,17 +83,32 @@ FMA, and the 4 PWM duty registers. Exit status 0 = all passed.
 FMA operands / result and the addr 56 input are raw IEEE-754 binary32 bit
 patterns — use `struct.pack('!f', x)` / `struct.unpack`.
 
-**Float→fixed** (addr 56/57): `fixed = trunc(float · 2¹⁰)` read back as a
-signed 32-bit int, so a float in `[0,1]` maps to `[0, 1024]`. Uses the
-`hVHDL_floating_point` **non-generic** `denormalizer_pkg` with a 2-stage
-pipe config (`denormalizer_with_N_stage_pipe_pkg` sets the depth).
+**Float→fixed** (addr 56/57/58): write an fp32 bit pattern to addr 56 and a
+radix to addr 58; read `trunc(float · 2^radix)` back from addr 57 as a
+signed 32-bit int (at radix 10 a float in `[0,1]` maps to `[0, 1024]`). One
+converter instance handles any radix — verified on hardware at radix
+0/8/9/10/11/12/14.
+
+Implemented by the local **`float_to_fixed.vhd`** — the
+`hVHDL_floating_point` denormalise-then-take-the-mantissa algorithm wrapped
+as an entity in the `multiply_add` style: `float_to_fixed_pkg` provides the
+input/output records, `create_float_to_fixed_typeref`,
+`request_float_to_fixed`, `get_fixed_result` / `float_to_fixed_is_ready`,
+and a separate `fp32_to_hfloat` glue function. The hfloat reference type
+(`floatref`, default `hfloat32`) and the pipeline depth (`g_stages`,
+default 2) are entity generics; the radix travels in the request record.
 `sim/float_to_fixed_tb.vhd` covers it.
 
-> The generic `denormalizer_generic_pkg` does **not** synthesise correctly
-> on Quartus Pro 25.3 — it drops the mantissa shift and returns the raw
-> mantissa (`1.0 → 2²³` on hardware), though it simulates fine under nvc.
-> The non-generic package keys off package-level constants instead of
-> `self'attr` on an `out` parameter and works.
+> The library's generic `denormalizer_generic_pkg` does **not** synthesise
+> correctly on Quartus Pro 25.3 — it drops the mantissa shift and returns
+> the raw mantissa (`1.0 → 2²³` on hardware), though it simulates fine
+> under nvc. The cause is `self.<field>'attr` reads on an unconstrained
+> **record subprogram formal**, which Quartus evaluates as 0. `float_to_fixed`
+> takes the mantissa width from the `floatref` **generic** and the stage
+> count from `g_stages`, so no attribute is read off a formal.
+> (`fp32_to_hfloat` must return a *constrained* subtype for the same
+> reason — an unconstrained function result loses its bounds passing
+> through `request_float_to_fixed`'s `hfloat_record` formal.)
 
 **FMA latency**: the probe (addr 55/54) measures **3 core-clock edges**
 input→result on hardware, matching the behavioural `sim_native_fp32.vhd`

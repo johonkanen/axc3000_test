@@ -19,8 +19,9 @@ Register map (see uart_bringup_top.vhd):
     53  FMA result    a*b + c  (fp32)                RO
     54  measured FMA pipeline latency (clocks)       RO
     55  write -> run the latency probe               WO
-    56  float->fixed input (fp32)                    RW  (starts a convert)
-    57  fixed-point result, radix 10 (signed int)   RO  (= float * 2**10)
+    56  float->fixed input (fp32)                    RW
+    57  fixed-point result (signed int)             RO  (= trunc(float * 2**radix))
+    58  float->fixed radix                           RW  (default 10)
     60  PWM0 duty (mkr_d4)  tenths of a percent      RW
     61  PWM1 duty (mkr_d5)                           RW
     62  PWM2 duty (mkr_d6)                           RW
@@ -182,17 +183,42 @@ def test_fma_latency(u, r):
         )
 
 
+def _read_fixed(u):
+    got = u.read(57)
+    if got >= 2 ** 31:
+        got -= 2 ** 32
+    return got
+
+
 def test_float_to_fixed(u, r):
     print("float -> fixed-point, radix 10 (write addr 56, read addr 57)  fixed = trunc(x * 1024)")
     import math
+    u.write(58, 10)
     for x in (1.0, 0.5, 0.25, 0.75, 0.1, 0.0, -0.5, 2.0, 1.0 / 3.0, 2 ** -10):
         u.write(56, f2i(x))
         time.sleep(0.02)
-        got = u.read(57)
-        if got >= 2 ** 31:
-            got -= 2 ** 32
+        got = _read_fixed(u)
         exp = math.trunc(x * 1024)
         r.check(f"{x:+.5f}", abs(got - exp) <= 1, f"got {got}, expected {exp}")
+
+
+def test_float_to_fixed_radix(u, r):
+    print("float -> fixed-point, run-time radix (addr 58) - one denormalizer, many radixes")
+    import math
+    cases = [
+        (1.0, 10, 1024), (1.0, 8, 256), (1.0, 12, 4096), (1.0, 0, 1),
+        (0.5, 10, 512), (0.5, 9, 256),
+        (0.1, 10, 102), (0.1, 14, math.trunc(0.1 * 2 ** 14)),
+        (-0.5, 11, -1024), (3.0, 10, 3072), (2 ** -10, 10, 1),
+    ]
+    for x, radix, exp in cases:
+        u.write(58, radix)
+        u.write(56, f2i(x))
+        time.sleep(0.02)
+        got = _read_fixed(u)
+        r.check(f"{x:+.5f} @ radix {radix:>2}", abs(got - exp) <= 1, f"got {got}, expected {exp}")
+    u.write(58, 10)
+    r.info("radix register restored to 10")
 
 
 def test_pwm(u, r):
@@ -234,6 +260,7 @@ def main():
             test_fma,
             test_fma_latency,
             test_float_to_fixed,
+            test_float_to_fixed_radix,
             test_pwm,
         ):
             t(u, r)
