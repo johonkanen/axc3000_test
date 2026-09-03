@@ -84,6 +84,8 @@ From `ArrowElectronics/altera_workshops` → `axc3000/NIOSV_lab/completed_lab/NI
 | `uart_rxd` | AG23 | 3.3-V LVCMOS |
 | `uart_txd` | AG24 | 3.3-V LVCMOS |
 
+Arduino MKR header (J1/J2) pin map: [docs/mkr_pinout.md](docs/mkr_pinout.md).
+
 ## IP
 
 Only the `.ip` files are committed; regenerate the HDL with `qsys-generate`.
