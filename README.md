@@ -69,13 +69,22 @@ FMA, and the 4 PWM duty registers. Exit status 0 = all passed.
 | 51 | FP32 FMA operand b — `fp32_mult_b` (R/W) |
 | 52 | FP32 FMA operand c — `fp32_adder_a` (R/W) |
 | 53 | FP32 FMA result `a*b + c` (RO) |
+| 54 | measured FMA pipeline latency, core-clock edges (RO) |
+| 55 | write → run the FMA latency probe (WO) |
 | 60 | PWM0 duty — `mkr_d4` (R/W) |
 | 61 | PWM1 duty — `mkr_d5` (R/W) |
 | 62 | PWM2 duty — `mkr_d6` (R/W) |
 | 63 | PWM3 duty — `mkr_d7` (R/W) |
 
 FMA operands / result are raw IEEE-754 binary32 bit patterns — use
-`setf`/`getf` in `test_hw.py`, or `struct.pack('!f', x)`.
+`struct.pack('!f', x)` / `struct.unpack`.
+
+**FMA latency**: the probe (addr 55/54) measures **2 core-clock edges**
+input→result on hardware — the `native_fp32.ip` here enables only the
+mult/adder input registers and the output register. The behavioural
+`sim_native_fp32.vhd` model in `hVHDL_floating_point` is one stage deeper
+(**3 edges**); `sim/fma_latency_tb.vhd` runs the identical probe against
+that model.
 
 PWM: 100 MHz core clock / 1000 → **100 kHz**, **centre-aligned** (triangle
 carrier — all four pulses centred on the same instant). Duty register
