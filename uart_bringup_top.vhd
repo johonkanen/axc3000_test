@@ -39,8 +39,10 @@
 --   addr 62: PWM2 duty (mkr_d6)             (read / write)
 --   addr 63: PWM3 duty (mkr_d7)             (read / write)
 -- FMA operands/result and addr 56 are raw IEEE-754 binary32 bit patterns.
--- Float->fixed (addr 57): fixed = round(float * 2**10) in Q(13.10), read
--- back as a signed 32-bit int, so a float in [0,1] maps to [0, 1024].
+-- Float->fixed (addr 57): hVHDL_floating_point denormalizer_pkg, radix 10
+-- -> fixed = float * 2**10 (truncated), so [0,1] maps to [0, 1024].
+-- (Uses the non-generic denormalizer_pkg + a 2-stage pipe config;
+--  denormalizer_generic_pkg does not synthesise correctly on Quartus.)
 -- PWM: 100 MHz core clock / 1000 = 100 kHz, CENTRE-aligned (triangle
 -- carrier - all four pulses centred on the same instant).  Duty register
 -- holds the number of core-clock cycles high per 1000-cycle period, i.e.
@@ -81,6 +83,8 @@ architecture rtl of uart_bringup_top is
 
     use work.fpga_interconnect_pkg.all;
     use work.multiply_add_pkg.all;
+    use work.float_type_definitions_pkg.all;   -- hVHDL_floating_point float_record
+    use work.denormalizer_pkg.all;             -- float -> fixed-point conversion
 
     signal core_clock : std_logic;
     signal pll_locked : std_logic;
@@ -117,26 +121,34 @@ architecture rtl of uart_bringup_top is
     signal probe_trig    : std_logic := '0';   -- toggles on write to 55 (test_registers)
     signal probe_seen    : std_logic := '0';   -- follows probe_trig (probe fsm)
 
-    -- float -> fixed-point, radix 10:  fixed = round(float * 2**10), so a
-    -- float in [0,1] maps to [0, 1024].  Q(13.10) two's-complement, read
-    -- back as a signed 32-bit integer.
-    --
-    -- (The hVHDL_floating_point denormalizer would be the natural fit here,
-    --  but denormalizer_generic_pkg does not synthesise correctly on this
-    --  Quartus Pro - it drops the mantissa shift and returns the raw
-    --  mantissa - so this uses ieee.fixed_pkg, which float_typedefs is
-    --  itself built on.)
-    function fp32_to_q10 (slv : std_logic_vector(31 downto 0)) return std_logic_vector is
-        constant f  : ieee.float_pkg.float32
-            := ieee.float_pkg.to_float(slv, 8, 23);
-        constant xf : ieee.fixed_pkg.sfixed(13 downto -10)   -- +/-8192, ample for [0,1]->[0,1024]
-            := ieee.float_pkg.to_sfixed(f, 13, -10);
+    -- float -> fixed-point via the hVHDL_floating_point denormalizer:
+    -- the fp32 value becomes a float_record, then the denormalizer scales
+    -- it to radix c_conv_radix -> fixed = float * 2**radix (truncated), so
+    -- a float in [0,1] maps to [0, 1024].  Pipeline depth is set by the
+    -- denormalizer_with_N_stage_pipe config package in the build.
+    constant c_conv_radix : integer := 10;
+
+    -- IEEE-754 binary32 slv -> float_record (24-bit mantissa word-length).
+    -- Zero / subnormal, and anything that would scale below 1 LSB, map to
+    -- an exact 0 so the denormalizer never shifts past its exponent field.
+    function fp32_to_float_record (slv : std_logic_vector(31 downto 0)) return float_record is
+        variable r  : float_record := zero;
+        constant be : unsigned(7 downto 0) := unsigned(slv(30 downto 23));
+        constant e  : integer := to_integer(be) - 126;   -- float_record exponent
     begin
-        return std_logic_vector(resize(signed(ieee.fixed_pkg.to_slv(xf)), 32));
+        if be /= 0 and e > -c_conv_radix then
+            r.sign     := slv(31);
+            r.exponent := to_signed(e, r.exponent'length);
+            r.mantissa := resize(unsigned('1' & slv(22 downto 0)), r.mantissa'length);
+        end if;
+        return r;
     end function;
 
+    signal denorm         : denormalizer_record := init_denormalizer;
     signal fp_conv_in     : std_logic_vector(31 downto 0) := (others => '0');  -- addr 56, fp32
     signal fixed_conv_out : std_logic_vector(31 downto 0) := (others => '0');  -- addr 57, signed
+    signal conv_trig      : std_logic := '0';   -- toggles on write to 56 (test_registers)
+    signal conv_seen      : std_logic := '0';
 
     -- synchronous, active-high reset: PLL not locked / power-on / button
     signal por_counter  : natural range 0 to 1_048_575 := 1_048_575;
@@ -229,7 +241,9 @@ begin
             -- float -> fixed (radix 10): write addr 56, read the result at addr 57
             connect_data_to_address(bus_from_communications, bus_from_top, 56, fp_conv_in);
             connect_read_only_data_to_address(bus_from_communications, bus_from_top, 57, fixed_conv_out);
-            fixed_conv_out <= fp32_to_q10(fp_conv_in);
+            if write_is_requested_to_address(bus_from_communications, 56) then
+                conv_trig <= not conv_trig;
+            end if;
 
             -- PWM duty registers (mkr_d4..d7)
             connect_data_to_address(bus_from_communications, bus_from_top, 60, pwm_duty(0));
@@ -333,6 +347,33 @@ begin
             end if;
         end if;
     end process fma_latency_probe;
+
+------------------------------------------------------------------------
+    -- float -> fixed-point conversion (hVHDL_floating_point denormalizer).
+    -- A write to addr 56 (IEEE binary32) requests a conversion at radix
+    -- c_conv_radix; the result (float * 2**radix, signed) lands in
+    -- fixed_conv_out / addr 57 after the denormalizer pipeline.
+    float_to_fixed : process (core_clock) is
+    begin
+        if rising_edge(core_clock) then
+            create_denormalizer(denorm);
+
+            if conv_trig /= conv_seen then
+                conv_seen <= conv_trig;
+                convert_float_to_integer(denorm,
+                    fp32_to_float_record(fp_conv_in), c_conv_radix);
+            end if;
+
+            if denormalizer_is_ready(denorm) then
+                fixed_conv_out <= std_logic_vector(to_signed(get_integer(denorm), 32));
+            end if;
+
+            if system_reset = '1' then
+                fixed_conv_out <= (others => '0');
+                conv_seen      <= conv_trig;
+            end if;
+        end if;
+    end process float_to_fixed;
 
 
 

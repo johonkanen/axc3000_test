@@ -183,14 +183,15 @@ def test_fma_latency(u, r):
 
 
 def test_float_to_fixed(u, r):
-    print("float -> fixed-point, radix 10 (write addr 56, read addr 57)  fixed = round(x * 1024)")
-    for x in (1.0, 0.5, 0.25, 0.75, 0.1, 0.0, -0.5, 2.0, 1.0 / 3.0):
+    print("float -> fixed-point, radix 10 (write addr 56, read addr 57)  fixed = trunc(x * 1024)")
+    import math
+    for x in (1.0, 0.5, 0.25, 0.75, 0.1, 0.0, -0.5, 2.0, 1.0 / 3.0, 2 ** -10):
         u.write(56, f2i(x))
         time.sleep(0.02)
         got = u.read(57)
         if got >= 2 ** 31:
             got -= 2 ** 32
-        exp = round(x * 1024)
+        exp = math.trunc(x * 1024)
         r.check(f"{x:+.5f}", abs(got - exp) <= 1, f"got {got}, expected {exp}")
 
 

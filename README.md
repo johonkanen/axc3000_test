@@ -72,7 +72,7 @@ FMA, and the 4 PWM duty registers. Exit status 0 = all passed.
 | 54 | measured FMA pipeline latency, core-clock edges (RO) |
 | 55 | write → run the FMA latency probe (WO) |
 | 56 | float→fixed input — fp32 bit pattern (R/W) |
-| 57 | fixed-point result, radix 10 = `round(float · 2¹⁰)` (RO, signed) |
+| 57 | fixed-point result, radix 10 = `trunc(float · 2¹⁰)` (RO, signed) |
 | 60 | PWM0 duty — `mkr_d4` (R/W) |
 | 61 | PWM1 duty — `mkr_d5` (R/W) |
 | 62 | PWM2 duty — `mkr_d6` (R/W) |
@@ -81,12 +81,17 @@ FMA, and the 4 PWM duty registers. Exit status 0 = all passed.
 FMA operands / result and the addr 56 input are raw IEEE-754 binary32 bit
 patterns — use `struct.pack('!f', x)` / `struct.unpack`.
 
-**Float→fixed** (addr 56/57): `fixed = round(float · 2¹⁰)` in Q(13.10),
-read back as a signed 32-bit int, so a float in `[0,1]` maps to
-`[0, 1024]`. Implemented with `ieee.fixed_pkg` — the
-`hVHDL_floating_point` `denormalizer_generic_pkg` would be the natural fit
-but does not synthesise correctly on Quartus Pro 25.3 (it drops the
-mantissa shift and returns the raw mantissa; it simulates fine under nvc).
+**Float→fixed** (addr 56/57): `fixed = trunc(float · 2¹⁰)` read back as a
+signed 32-bit int, so a float in `[0,1]` maps to `[0, 1024]`. Uses the
+`hVHDL_floating_point` **non-generic** `denormalizer_pkg` with a 2-stage
+pipe config (`denormalizer_with_N_stage_pipe_pkg` sets the depth).
+`sim/float_to_fixed_tb.vhd` covers it.
+
+> The generic `denormalizer_generic_pkg` does **not** synthesise correctly
+> on Quartus Pro 25.3 — it drops the mantissa shift and returns the raw
+> mantissa (`1.0 → 2²³` on hardware), though it simulates fine under nvc.
+> The non-generic package keys off package-level constants instead of
+> `self'attr` on an `out` parameter and works.
 
 **FMA latency**: the probe (addr 55/54) measures **3 core-clock edges**
 input→result on hardware, matching the behavioural `sim_native_fp32.vhd`
