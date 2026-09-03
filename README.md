@@ -79,12 +79,12 @@ FMA, and the 4 PWM duty registers. Exit status 0 = all passed.
 FMA operands / result are raw IEEE-754 binary32 bit patterns — use
 `struct.pack('!f', x)` / `struct.unpack`.
 
-**FMA latency**: the probe (addr 55/54) measures **2 core-clock edges**
-input→result on hardware — the `native_fp32.ip` here enables only the
-mult/adder input registers and the output register. The behavioural
-`sim_native_fp32.vhd` model in `hVHDL_floating_point` is one stage deeper
-(**3 edges**); `sim/fma_latency_tb.vhd` runs the identical probe against
-that model.
+**FMA latency**: the probe (addr 55/54) measures **3 core-clock edges**
+input→result on hardware, matching the behavioural `sim_native_fp32.vhd`
+model in `hVHDL_floating_point`. `native_fp32.ip` enables the mult/adder
+input registers, the `adder_input` register (`adder_input_clken = 0`), and
+the output register. `sim/fma_latency_tb.vhd` runs the identical probe
+against the model. (With `adder_input` disabled the hardware measures 2.)
 
 PWM: 100 MHz core clock / 1000 → **100 kHz**, **centre-aligned** (triangle
 carrier — all four pulses centred on the same instant). Duty register

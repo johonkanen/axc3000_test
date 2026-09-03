@@ -13,10 +13,10 @@
 --
 -- Result 2026-09-03:
 --   sim_native_fp32.vhd model -> 3 core-clock edges
---   real native_fp32 IP (hw)  -> 2 core-clock edges  (input reg + output
---                                reg only; no internal pipeline regs)
--- i.e. the behavioural model is one register stage deeper than the IP as
--- configured in ip/native_fp32/native_fp32.ip.
+--   real native_fp32 IP (hw)  -> 3 core-clock edges
+-- They match: native_fp32.ip enables the mult/adder input registers,
+-- adder_input, and the output register (adder_input_clken = 0).  Before
+-- adder_input was enabled the hardware measured 2.
 -- ---------------------------------------------------------------------
 library ieee;
     use ieee.std_logic_1164.all;

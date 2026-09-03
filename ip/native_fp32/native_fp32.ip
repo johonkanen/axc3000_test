@@ -505,7 +505,7 @@ https://fpgasoftware.intel.com/eula.-->
         <ipxact:parameter parameterId="adder_input_clken" type="string">
           <ipxact:name>adder_input_clken</ipxact:name>
           <ipxact:displayName>Enable 'adder_input' register</ipxact:displayName>
-          <ipxact:value>no_reg</ipxact:value>
+          <ipxact:value>0</ipxact:value>
         </ipxact:parameter>
         <ipxact:parameter parameterId="adder_pl_clken" type="string">
           <ipxact:name>adder_pl_clken</ipxact:name>

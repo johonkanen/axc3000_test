@@ -171,12 +171,12 @@ def test_fma_latency(u, r):
     r.check("probe returns a stable value", stable, f"{runs}")
     if stable:
         lat = runs[0]
-        # real native_fp32.ip config = input reg + output reg only -> 2
+        # native_fp32.ip enables input regs + adder_input + output reg -> 3,
+        # matching the 3-stage sim_native_fp32.vhd behavioural model.
         r.check(
-            "hardware latency == 2 (matches the IP register config)",
-            lat == 2,
-            f"{lat} core-clock edges  "
-            f"(sim_native_fp32.vhd models {3}; see sim/fma_latency_tb.vhd)",
+            "hardware latency == 3 (matches sim_native_fp32.vhd)",
+            lat == 3,
+            f"{lat} core-clock edges  (see sim/fma_latency_tb.vhd)",
         )
 
 

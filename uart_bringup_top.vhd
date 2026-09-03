@@ -93,7 +93,9 @@ architecture rtl of uart_bringup_top is
 
     -- FMA latency probe: on a write to addr 55 it drives (1.0, 8.0, 0.0)
     -- -> result 8.0, then steps mult_a to 8.0 and counts core_clock
-    -- edges until the result reads 64.0.  Result at addr 54.
+    -- edges until the result reads 64.0.  Result at addr 54.  Reads 3 -
+    -- input regs + adder_input + output reg - matching the behavioural
+    -- model source/hVHDL_floating_point/.../sim_native_fp32.vhd.
     constant c_fma_a0  : std_logic_vector(31 downto 0) := x"3F800000";  -- 1.0
     constant c_fma_a1  : std_logic_vector(31 downto 0) := x"41000000";  -- 8.0
     constant c_fma_b   : std_logic_vector(31 downto 0) := x"41000000";  -- 8.0
@@ -252,7 +254,7 @@ begin
 ------------------------------------------------------------------------
     -- FMA hardware-latency probe.  Measures core_clock edges from a step
     -- on mult_a to the new value appearing at the result, and parks it in
-    -- probe_latency (addr 54).  Compare with the 3-cycle model in
+    -- probe_latency (addr 54).  Reads 3, matching the sim model in
     -- source/hVHDL_floating_point/.../sim_native_fp32.vhd.
     fma_latency_probe : process (core_clock) is
     begin
