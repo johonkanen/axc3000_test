@@ -32,11 +32,15 @@
 --   addr 53: FMA result  a*b + c  (fp32)    (read only)
 --   addr 54: measured FMA pipeline latency  (read only, core-clock edges)
 --   addr 55: write -> run the latency probe  (write only)
+--   addr 56: float->fixed input (fp32)      (read / write, starts a convert)
+--   addr 57: fixed-point result, radix 10   (read only, signed integer)
 --   addr 60: PWM0 duty (mkr_d4)             (read / write)
 --   addr 61: PWM1 duty (mkr_d5)             (read / write)
 --   addr 62: PWM2 duty (mkr_d6)             (read / write)
 --   addr 63: PWM3 duty (mkr_d7)             (read / write)
--- FMA operands/result are raw IEEE-754 binary32 bit patterns.
+-- FMA operands/result and addr 56 are raw IEEE-754 binary32 bit patterns.
+-- Float->fixed (addr 57): fixed = round(float * 2**10) in Q(13.10), read
+-- back as a signed 32-bit int, so a float in [0,1] maps to [0, 1024].
 -- PWM: 100 MHz core clock / 1000 = 100 kHz, CENTRE-aligned (triangle
 -- carrier - all four pulses centred on the same instant).  Duty register
 -- holds the number of core-clock cycles high per 1000-cycle period, i.e.
@@ -112,6 +116,27 @@ architecture rtl of uart_bringup_top is
     signal probe_latency : std_logic_vector(31 downto 0) := (others => '0');
     signal probe_trig    : std_logic := '0';   -- toggles on write to 55 (test_registers)
     signal probe_seen    : std_logic := '0';   -- follows probe_trig (probe fsm)
+
+    -- float -> fixed-point, radix 10:  fixed = round(float * 2**10), so a
+    -- float in [0,1] maps to [0, 1024].  Q(13.10) two's-complement, read
+    -- back as a signed 32-bit integer.
+    --
+    -- (The hVHDL_floating_point denormalizer would be the natural fit here,
+    --  but denormalizer_generic_pkg does not synthesise correctly on this
+    --  Quartus Pro - it drops the mantissa shift and returns the raw
+    --  mantissa - so this uses ieee.fixed_pkg, which float_typedefs is
+    --  itself built on.)
+    function fp32_to_q10 (slv : std_logic_vector(31 downto 0)) return std_logic_vector is
+        constant f  : ieee.float_pkg.float32
+            := ieee.float_pkg.to_float(slv, 8, 23);
+        constant xf : ieee.fixed_pkg.sfixed(13 downto -10)   -- +/-8192, ample for [0,1]->[0,1024]
+            := ieee.float_pkg.to_sfixed(f, 13, -10);
+    begin
+        return std_logic_vector(resize(signed(ieee.fixed_pkg.to_slv(xf)), 32));
+    end function;
+
+    signal fp_conv_in     : std_logic_vector(31 downto 0) := (others => '0');  -- addr 56, fp32
+    signal fixed_conv_out : std_logic_vector(31 downto 0) := (others => '0');  -- addr 57, signed
 
     -- synchronous, active-high reset: PLL not locked / power-on / button
     signal por_counter  : natural range 0 to 1_048_575 := 1_048_575;
@@ -201,6 +226,11 @@ begin
                 probe_trig <= not probe_trig;
             end if;
 
+            -- float -> fixed (radix 10): write addr 56, read the result at addr 57
+            connect_data_to_address(bus_from_communications, bus_from_top, 56, fp_conv_in);
+            connect_read_only_data_to_address(bus_from_communications, bus_from_top, 57, fixed_conv_out);
+            fixed_conv_out <= fp32_to_q10(fp_conv_in);
+
             -- PWM duty registers (mkr_d4..d7)
             connect_data_to_address(bus_from_communications, bus_from_top, 60, pwm_duty(0));
             connect_data_to_address(bus_from_communications, bus_from_top, 61, pwm_duty(1));
@@ -215,6 +245,7 @@ begin
                 fp_a                  <= (others => '0');
                 fp_b                  <= (others => '0');
                 fp_c                  <= (others => '0');
+                fp_conv_in            <= (others => '0');
                 pwm_duty              <= init_duty;
                 bus_to_communications <= init_fpga_interconnect;
             end if;
@@ -302,6 +333,8 @@ begin
             end if;
         end if;
     end process fma_latency_probe;
+
+
 
 ------------------------------------------------------------------------
     -- 4 x 100 kHz centre-aligned PWM.  A triangle carrier ramps

@@ -71,13 +71,22 @@ FMA, and the 4 PWM duty registers. Exit status 0 = all passed.
 | 53 | FP32 FMA result `a*b + c` (RO) |
 | 54 | measured FMA pipeline latency, core-clock edges (RO) |
 | 55 | write → run the FMA latency probe (WO) |
+| 56 | float→fixed input — fp32 bit pattern (R/W) |
+| 57 | fixed-point result, radix 10 = `round(float · 2¹⁰)` (RO, signed) |
 | 60 | PWM0 duty — `mkr_d4` (R/W) |
 | 61 | PWM1 duty — `mkr_d5` (R/W) |
 | 62 | PWM2 duty — `mkr_d6` (R/W) |
 | 63 | PWM3 duty — `mkr_d7` (R/W) |
 
-FMA operands / result are raw IEEE-754 binary32 bit patterns — use
-`struct.pack('!f', x)` / `struct.unpack`.
+FMA operands / result and the addr 56 input are raw IEEE-754 binary32 bit
+patterns — use `struct.pack('!f', x)` / `struct.unpack`.
+
+**Float→fixed** (addr 56/57): `fixed = round(float · 2¹⁰)` in Q(13.10),
+read back as a signed 32-bit int, so a float in `[0,1]` maps to
+`[0, 1024]`. Implemented with `ieee.fixed_pkg` — the
+`hVHDL_floating_point` `denormalizer_generic_pkg` would be the natural fit
+but does not synthesise correctly on Quartus Pro 25.3 (it drops the
+mantissa shift and returns the raw mantissa; it simulates fine under nvc).
 
 **FMA latency**: the probe (addr 55/54) measures **3 core-clock edges**
 input→result on hardware, matching the behavioural `sim_native_fp32.vhd`

@@ -19,6 +19,8 @@ Register map (see uart_bringup_top.vhd):
     53  FMA result    a*b + c  (fp32)                RO
     54  measured FMA pipeline latency (clocks)       RO
     55  write -> run the latency probe               WO
+    56  float->fixed input (fp32)                    RW  (starts a convert)
+    57  fixed-point result, radix 10 (signed int)   RO  (= float * 2**10)
     60  PWM0 duty (mkr_d4)  tenths of a percent      RW
     61  PWM1 duty (mkr_d5)                           RW
     62  PWM2 duty (mkr_d6)                           RW
@@ -180,6 +182,18 @@ def test_fma_latency(u, r):
         )
 
 
+def test_float_to_fixed(u, r):
+    print("float -> fixed-point, radix 10 (write addr 56, read addr 57)  fixed = round(x * 1024)")
+    for x in (1.0, 0.5, 0.25, 0.75, 0.1, 0.0, -0.5, 2.0, 1.0 / 3.0):
+        u.write(56, f2i(x))
+        time.sleep(0.02)
+        got = u.read(57)
+        if got >= 2 ** 31:
+            got -= 2 ** 32
+        exp = round(x * 1024)
+        r.check(f"{x:+.5f}", abs(got - exp) <= 1, f"got {got}, expected {exp}")
+
+
 def test_pwm(u, r):
     print("PWM duty registers (addr 60-63)")
     defaults = {a: u.read(a) for a in PWM_DEFAULTS}
@@ -218,6 +232,7 @@ def main():
             test_read_counter,
             test_fma,
             test_fma_latency,
+            test_float_to_fixed,
             test_pwm,
         ):
             t(u, r)
