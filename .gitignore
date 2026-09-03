@@ -14,3 +14,7 @@ serv_req_info.txt
 
 # generated IP HDL - keep the ip/<name>/<name>.ip source, drop the generated tree
 ip/*/*/
+
+# python
+__pycache__/
+*.pyc
