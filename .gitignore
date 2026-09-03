@@ -1,7 +1,10 @@
 # Quartus build output
 dni/
 qdb/
+db/
+incremental_db/
 output_files/
+*.qdf
 uart_bringup.qsf
 uart_bringup.qpf
 *.rpt
