@@ -35,9 +35,11 @@
 --   addr 62: PWM2 duty (mkr_d6)             (read / write)
 --   addr 63: PWM3 duty (mkr_d7)             (read / write)
 -- FMA operands/result are raw IEEE-754 binary32 bit patterns.
--- PWM: 100 MHz core clock / 1000 = 100 kHz.  Duty register holds the
--- number of core-clock cycles the output is high per 1000-cycle period,
--- i.e. tenths of a percent (100 = 10.0%).  Resets to 100/200/300/400.
+-- PWM: 100 MHz core clock / 1000 = 100 kHz, CENTRE-aligned (triangle
+-- carrier - all four pulses centred on the same instant).  Duty register
+-- holds the number of core-clock cycles high per 1000-cycle period, i.e.
+-- tenths of a percent (100 = 10.0%); centre alignment makes the effective
+-- step 0.2%.  Resets to 100/200/300/400.
 ------------------------------------------------------------------------
 library ieee;
     use ieee.std_logic_1164.all;
@@ -100,8 +102,9 @@ architecture rtl of uart_bringup_top is
     signal loopback_register : std_logic_vector(31 downto 0) := (others => '0');
     signal read_counter      : std_logic_vector(31 downto 0) := (others => '0');
 
-    -- 4 x 100 kHz PWM on mkr_d4..d7
+    -- 4 x 100 kHz centre-aligned PWM on mkr_d4..d7
     constant c_pwm_period : natural := 1000;   -- 100 MHz / 1000 = 100 kHz
+    constant c_pwm_half   : natural := c_pwm_period / 2;
 
     type slv32_array is array (natural range <>) of std_logic_vector(31 downto 0);
     function init_duty return slv32_array is
@@ -113,9 +116,11 @@ architecture rtl of uart_bringup_top is
         return v;
     end function;
 
-    signal pwm_duty    : slv32_array(0 to 3) := init_duty;
-    signal pwm_counter : natural range 0 to c_pwm_period - 1 := 0;
-    signal pwm_out     : std_logic_vector(3 downto 0) := (others => '0');
+    signal pwm_duty : slv32_array(0 to 3) := init_duty;
+    -- triangle (up/down) carrier: 0 -> c_pwm_half -> 0 = one 100 kHz period
+    signal pwm_tri  : natural range 0 to c_pwm_half := 0;
+    signal pwm_up   : std_logic := '1';
+    signal pwm_out  : std_logic_vector(3 downto 0) := (others => '0');
 
 begin
 
@@ -220,24 +225,53 @@ begin
     );
 
 ------------------------------------------------------------------------
-    -- 4 x 100 kHz edge-aligned PWM.  Output high while the free-running
-    -- 0..999 counter is below the channel duty value.
+    -- 4 x 100 kHz centre-aligned PWM.  A triangle carrier ramps
+    -- 0 -> c_pwm_half -> 0 over one period; each output is high while the
+    -- carrier is below (duty / 2), so the pulse is centred on the carrier
+    -- minimum and all four channels are aligned there.  Duty register is
+    -- still "high cycles per 1000-cycle period" (LSB = 0.1 %); centre
+    -- alignment costs one bit of resolution (effective step 0.2 %).
     pwm_gen : process (core_clock) is
+        variable du  : unsigned(31 downto 0);
+        variable cmp : natural range 0 to c_pwm_half;
     begin
         if rising_edge(core_clock) then
-            if pwm_counter = c_pwm_period - 1 then
-                pwm_counter <= 0;
+            if pwm_up = '1' then
+                if pwm_tri = c_pwm_half - 1 then
+                    pwm_tri <= c_pwm_half;
+                    pwm_up  <= '0';
+                else
+                    pwm_tri <= pwm_tri + 1;
+                end if;
             else
-                pwm_counter <= pwm_counter + 1;
+                if pwm_tri = 1 then
+                    pwm_tri <= 0;
+                    pwm_up  <= '1';
+                else
+                    pwm_tri <= pwm_tri - 1;
+                end if;
             end if;
 
             for i in 0 to 3 loop
-                if to_unsigned(pwm_counter, 32) < unsigned(pwm_duty(i)) then
+                du := unsigned(pwm_duty(i));
+                if du >= to_unsigned(c_pwm_period, 32) then
+                    cmp := c_pwm_half;
+                else
+                    cmp := to_integer(du) / 2;
+                end if;
+
+                if pwm_tri < cmp then
                     pwm_out(i) <= '1';
                 else
                     pwm_out(i) <= '0';
                 end if;
             end loop;
+
+            if system_reset = '1' then
+                pwm_tri <= 0;
+                pwm_up  <= '1';
+                pwm_out <= (others => '0');
+            end if;
         end if;
     end process pwm_gen;
 

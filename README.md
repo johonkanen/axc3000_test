@@ -77,14 +77,17 @@ python test_hw.py COM6 115200
 FMA operands / result are raw IEEE-754 binary32 bit patterns — use
 `setf`/`getf` in `test_hw.py`, or `struct.pack('!f', x)`.
 
-PWM: 100 MHz core clock / 1000 → **100 kHz**, edge-aligned. Duty register
+PWM: 100 MHz core clock / 1000 → **100 kHz**, **centre-aligned** (triangle
+carrier — all four pulses centred on the same instant). Duty register
 holds high-time in core-clock cycles per 1000-cycle period, i.e. tenths of
-a percent (`100` = 10.0 %). Resets to 100 / 200 / 300 / 400
-(10 / 20 / 30 / 40 %). Outputs on MKR `D4`–`D7` (`AF19` / `AG20` / `AK19`
-/ `AJ19`).
+a percent (`100` = 10.0 %; centre alignment makes the effective step
+0.2 %). Resets to 100 / 200 / 300 / 400 (10 / 20 / 30 / 40 %). Outputs on
+MKR `D4`–`D7` (`AF19` / `AG20` / `AK19` / `AJ19`).
 
 Scoped on an Analog Discovery Pro 3450: all four channels 100.00 kHz,
-0 → 3.4 V, duty within ±0.3 % of the register value across a 5–95 % sweep.
+0 → 3.4 V, pulse widths 1 / 2 / 3 / 4 µs (10/20/30/40 %), pulse centres
+aligned across channels to within one 100 MHz clock, duty tracking the
+register within ±0.3 % over a 5–95 % sweep.
 
 ## Pinout
 
