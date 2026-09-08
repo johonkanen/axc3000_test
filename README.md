@@ -74,6 +74,10 @@ blaster, fix permissions, unbind `ftdi_sio` from the JTAG interface, start
 sudo ./program.sh --install-udev   # once: persistent 0666 rule + ftdi_sio unbind
 ```
 
+The actual build output lands in `build/output_files/uart_bringup.sof`, not
+`output_files/` at the repo root — either run `program.sh` from `build/`, or
+pass the path explicitly: `./program.sh build/output_files/uart_bringup.sof`.
+
 Without the udev rule `jtagconfig` reports *"Unable to lock chain -
 Insufficient port permissions"*; `sudo ./program.sh --install-udev` (then
 re-`attach` so the rule fires) fixes it for good. `QUARTUS_BIN=` and
@@ -84,6 +88,17 @@ Talk to it from WSL with the forwarded UART:
 ```
 python3 test_uart.py /dev/ttyUSB0 115200
 ```
+
+If that fails with `PermissionError: [Errno 13] Permission denied:
+'/dev/ttyUSB0'`, your user isn't in the `dialout` group that owns the port:
+
+```
+sudo usermod -aG dialout $USER
+```
+
+Group membership only applies to *new* login shells, so either fully exit
+and reopen the WSL terminal, or run `newgrp dialout` in the current shell to
+pick it up immediately.
 
 ## Talk to it
 
