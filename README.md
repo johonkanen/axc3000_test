@@ -47,6 +47,44 @@ quartus_pgm -c 1 -m jtag -o "p;output_files/uart_bringup.sof"
 
 Use the cable **index** `-c 1`, not a name. Cable is "USB Blaster III [USB-1]".
 
+### From WSL2
+
+The board's on-board **Altera USB Blaster III** (`09fb:6022`) is a single USB
+device that carries both JTAG (`iface0`) and the UART (`/dev/ttyUSB0`).
+WSL2 has no native USB, so forward it with
+[usbipd-win](https://github.com/dorssel/usbipd-win).
+
+**Windows** (admin PowerShell) — `bind` once, `attach` after every replug or
+`wsl --shutdown`:
+
+```
+usbipd list
+usbipd bind   --busid <b-p>
+usbipd attach --wsl --busid <b-p>
+```
+
+**WSL** — the [`program.sh`](program.sh) helper does the rest: locate the
+blaster, fix permissions, unbind `ftdi_sio` from the JTAG interface, start
+`jtagd`, print `jtagconfig`, then `quartus_pgm`.
+
+```
+./program.sh                       # build must be done; flashes output_files/uart_bringup.sof
+./program.sh path/to/other.sof     # flash a specific file
+./program.sh --check               # set up + jtagconfig, don't flash
+sudo ./program.sh --install-udev   # once: persistent 0666 rule + ftdi_sio unbind
+```
+
+Without the udev rule `jtagconfig` reports *"Unable to lock chain -
+Insufficient port permissions"*; `sudo ./program.sh --install-udev` (then
+re-`attach` so the rule fires) fixes it for good. `QUARTUS_BIN=` and
+`CABLE=` env vars override the tool path and cable index.
+
+Talk to it from WSL with the forwarded UART:
+
+```
+python3 test_uart.py /dev/ttyUSB0 115200
+```
+
 ## Talk to it
 
 100 MHz core clock / `g_clock_divider` (868) = 115200 baud, 32-bit data words.
