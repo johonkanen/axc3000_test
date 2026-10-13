@@ -71,16 +71,40 @@ infinite loop" test (bypassing Zephyr and everything else) also produced
    matters for the `bake_hex_into_ram.tcl` bring-up helper below, not for
    live `niosv-download`.
 
-Live JTAG download (`niosv-download --use_openocd`) does now reach a
-working debug-module halt+examine, but the actual GDB load step fails on
-this box with a `libncursesw` symbol-version conflict between the Zephyr
-SDK's `riscv64-zephyr-elf-gdb` and Quartus's bundled `qcore/linux64` copy
-of the library - `niosv-download` resets `LD_LIBRARY_PATH` internally, so
-exporting a fix in the calling shell doesn't help. Not yet resolved; the
-hex-baking helper below is the current path to get software onto the
-board.
+## Live JTAG download (the fast path - fixed)
+
+`./download.sh path/to/some.elf` loads an ELF over JTAG and runs it on the
+already-configured board - no bitstream rebuild per test:
+
+```
+./download.sh ../zephyr/build_hello/zephyr/zephyr.elf
+juart-terminal
+```
+
+Getting there needed one more fix: `niosv-download --use_openocd` reaches
+a working debug-module halt+examine fine (once the Reset Release IP above
+was in place), but the actual GDB load step failed with a `libncursesw`
+symbol-version conflict - `niosv-download`'s native launcher sets
+`LD_LIBRARY_PATH` to Quartus's bundled `qcore/linux64/`, whose
+`libncursesw.so.6` is too old for the Zephyr SDK's
+`riscv64-zephyr-elf-gdb`, and that `LD_LIBRARY_PATH` is reset for every
+subprocess niosv-download spawns, so exporting a fix in the calling shell
+doesn't survive. `LD_PRELOAD`-ing the system's newer `libncursesw.so.6`
+doesn't work either - it survives into *every* subprocess including plain
+`sh`, mixing it with `qcore`'s older `libtinfo` and breaking shell
+invocations outright (`undefined symbol: TABSIZE`).
+
+The fix: `gdb-wrapper/riscv64-zephyr-elf-gdb`, a thin script that strips
+`LD_LIBRARY_PATH` for just the one `exec` of the real gdb, placed ahead of
+`niosv/bin` on `PATH` (`download.sh` does this). That's enough for the
+real gdb to resolve `libncursesw` via the normal system search path
+instead.
 
 ## Bring-up without live JTAG download: baking a program into `ram0`
+
+Superseded by `download.sh` above for day-to-day iteration - kept as a
+fallback (e.g. for a non-volatile/no-JTAG-host boot, or if the download
+path breaks again on a different machine):
 
 `bake_hex_into_ram.tcl` patches an already-built system's `ram0` instance
 to load its initial contents from a `.hex` file instead of starting blank,
@@ -113,7 +137,9 @@ before committing.
 | `build_niosv_project.tcl` | `quartus_sh` source: creates the Quartus project, pins, SDC, and all `QIP_FILE`s - mirrors the repo-root `build_uart_bringup.tcl` pattern |
 | `niosv_zephyr_top.vhd` | board-level wrapper: `clk_clk` (pin A7) / `reset_reset_n` (pin A12) into the qsys system's `clk_in`/`reset_in` exports |
 | `niosv_zephyr.sdc` | `create_clock` on `clk_clk` (no PLL to inherit a clock from this time) |
-| `bake_hex_into_ram.tcl` | optional bring-up helper - see above. Not part of the normal build. |
+| `download.sh` | load + run an ELF over JTAG without reflashing - the normal day-to-day iteration path |
+| `gdb-wrapper/riscv64-zephyr-elf-gdb` | fixes `download.sh`'s `libncursesw` conflict - see above |
+| `bake_hex_into_ram.tcl` | fallback bring-up helper - see above. Not part of the normal build. |
 | `ip/niosv_zephyr_sys/niosv_zephyr_sys_{cb,cpu0,ram0,rb,rr0,uart0}.ip` | per-instance IP variation files - **committed**, same convention as the repo-root `ip/pll_100/pll_100.ip`. Their generated HDL trees (`ip/niosv_zephyr_sys/niosv_zephyr_sys_<inst>/`) are not. |
 
 Generated output (`niosv_zephyr_sys.qsys`, `niosv_zephyr_sys/`, the per-instance
@@ -134,14 +160,14 @@ quartus_sta niosv_zephyr
 quartus_asm niosv_zephyr
 ```
 
-This produces a clean, blank-RAM `.sof` ready for `niosv-download` once its
-GDB library issue is sorted, or for the `bake_hex_into_ram.tcl` path above
-in the meantime.
+This produces a clean, blank-RAM `.sof` - program it once, then use
+`download.sh` for every test after that.
 
 ## Programming and console
 
 ```bash
-quartus_pgm -c 1 -m jtag -o "p;output_files/niosv_zephyr.sof"
+quartus_pgm -c 1 -m jtag -o "p;output_files/niosv_zephyr.sof"   # once per hardware change
+./download.sh path/to/some.elf                                  # every test after that
 juart-terminal   # no board pins needed - rides the same JTAG cable as program.sh
 ```
 
@@ -149,5 +175,4 @@ juart-terminal   # no board pins needed - rides the same JTAG cable as program.s
 
 Wire Nios V/g as a second Avalon-MM master into the existing
 `fpga_communications` register block so Zephyr can drive the FP32 FMA / PWM
-registers from software. Fix the `niosv-download` GDB library issue first
-if faster iteration is wanted (rebuilding the bitstream per test is slow).
+registers from software.

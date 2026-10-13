@@ -1,0 +1,19 @@
+#!/bin/bash
+# Wrapper for niosv-download --use_openocd: its native launcher sets
+# LD_LIBRARY_PATH to Quartus's bundled qcore/linux64/ (presumably for its
+# own Jython/OpenOCD needs), and that directory's libncursesw.so.6 is too
+# old for the Zephyr SDK's gdb:
+#   riscv64-zephyr-elf-gdb: .../qcore/linux64/libncursesw.so.6: version
+#   `NCURSESW6_5.6.20061217' not found (required by riscv64-zephyr-elf-gdb)
+#
+# niosv-download resets LD_LIBRARY_PATH for every subprocess it spawns, so
+# exporting a fix in the calling shell doesn't survive - this wrapper sits
+# ahead of niosv/bin on PATH instead (see download.sh) and strips
+# LD_LIBRARY_PATH for just this one exec, letting the real gdb resolve
+# libncursesw via the normal system search path.
+#
+# (LD_PRELOAD of the system libncursesw.so.6 does NOT work as a fix here -
+# it survives into every subprocess including plain `sh`, mixing it with
+# qcore's older libtinfo and breaking shell invocations entirely:
+# "undefined symbol: TABSIZE, version NCURSES6_TINFO_5.0.19991023".)
+exec env -u LD_LIBRARY_PATH "$HOME/zephyr-sdk-1.0.1/gnu/riscv64-zephyr-elf/bin/riscv64-zephyr-elf-gdb" "$@"
