@@ -21,3 +21,9 @@ ip/*/*/
 # python
 __pycache__/
 *.pyc
+
+# niosv_zephyr: west workspace (zephyr + modules + SDK) is a multi-GB
+# multi-repo checkout, not ours to version - see niosv_zephyr/README.md
+niosv_zephyr/zephyr/
+niosv_zephyr/.west/
+niosv_zephyr/.venv/
