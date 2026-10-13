@@ -7,6 +7,10 @@ output_files/
 *.qdf
 uart_bringup.qsf
 uart_bringup.qpf
+niosv_zephyr.qsf
+niosv_zephyr.qpf
+niosv_zephyr_sys.qsys
+niosv_zephyr_sys/
 *.rpt
 *.summary
 *.pin
