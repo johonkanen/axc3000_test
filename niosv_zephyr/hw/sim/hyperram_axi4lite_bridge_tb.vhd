@@ -7,19 +7,26 @@
 -- queued, it isn't required to), applying writes/returning reads from an
 -- 8-word memory indexed by addr(5 downto 3).
 --
---   nvc --std=2019 -a ../hyperram_axi4lite_bridge.vhd hyperram_axi4lite_bridge_tb.vhd
---   nvc --std=2019 -e hyperram_axi4lite_bridge_tb -r
+-- Each `run(...)` test gets its own fresh simulation (VUnit's default), so
+-- every test writes whatever it needs to read back itself - none of them
+-- depend on another's leftover memory state.
+--
+--   python3 run.py -v "*hyperram*"          (from the repo root)
 library ieee;
     use ieee.std_logic_1164.all;
     use ieee.numeric_std.all;
 
-entity hyperram_axi4lite_bridge_tb is end entity;
+library vunit_lib;
+    context vunit_lib.vunit_context;
 
-architecture sim of hyperram_axi4lite_bridge_tb is
+entity hyperram_axi4lite_bridge_tb is
+    generic (runner_cfg : string);
+end entity;
+
+architecture vunit_simulation of hyperram_axi4lite_bridge_tb is
 
     signal clock : std_logic := '0';
     signal reset : boolean := true;
-    signal done  : boolean := false;
 
     -- data_manager
     signal d_awaddr, d_araddr, d_wdata, d_rdata : std_logic_vector(31 downto 0) := (others => '0');
@@ -60,29 +67,10 @@ architecture sim of hyperram_axi4lite_bridge_tb is
     type mem_array is array (0 to 7) of std_logic_vector(63 downto 0);
     signal mem : mem_array := (others => (others => '0'));
 
-    signal errors : natural := 0;
-
-    procedure check(cond : boolean; msg : string; signal errors : inout natural) is
-    begin
-        if not cond then
-            report "FAIL: " & msg severity error;
-            errors <= errors + 1;
-        end if;
-    end procedure;
-
 begin
 
-    clock <= not clock after 5 ns when not done;
+    clock <= not clock after 5 ns;
     reset <= true, false after 23 ns;
-
-    watchdog : process
-    begin
-        wait for 10 us;
-        if not done then
-            report "TIMEOUT: simulation did not finish in time" severity failure;
-        end if;
-        wait;
-    end process;
 
     u_bridge : entity work.hyperram_axi4lite_bridge
     port map(
@@ -161,131 +149,152 @@ begin
     d_bready <= '1'; i_bready <= '1';
     d_rready <= '1'; i_rready <= '1';
 
-    stimulus : process
+    test_runner : process
         procedure cycle is begin wait until rising_edge(clock); end procedure;
 
-        -- Clears `valid` once `ready` is seen high at a clock edge. Robust even
-        -- when `ready` is already high the instant this is called - unlike
-        -- `while ready /= '1' loop cycle; end loop;`, which then exits with
-        -- ZERO cycles consumed, so an immediately-following same-delta `valid`
-        -- pulse never reaches a clock edge for the other side to sample (this
-        -- is exactly what hung test 6 originally: d_wready was already '1'
-        -- when checked, so d_wvalid's pulse was set and cleared in the same
-        -- delta cycle, never actually seen by the mock).
+        -- Clears `valid` once `ready` is seen high at a clock edge. Robust
+        -- even when `ready` is already high the instant this is called -
+        -- unlike `while ready /= '1' loop cycle; end loop;`, which then
+        -- exits with ZERO cycles consumed, so an immediately-following
+        -- same-delta `valid` pulse never reaches a clock edge for the other
+        -- side to sample.
         procedure handshake(signal valid : out std_logic; signal ready : in std_logic) is
         begin
             wait until rising_edge(clock) and ready = '1';
             valid <= '0';
         end procedure;
+
+        -- a full AXI4-Lite write, for whichever master's signals are passed in
+        procedure axi_write(signal awaddr  : out std_logic_vector(31 downto 0);
+                             signal awvalid : out std_logic; signal awready : in std_logic;
+                             signal wdata   : out std_logic_vector(31 downto 0);
+                             signal wstrb   : out std_logic_vector(3 downto 0);
+                             signal wvalid  : out std_logic; signal wready : in std_logic;
+                             signal bvalid  : in std_logic;
+                             addr, data : std_logic_vector(31 downto 0)) is
+        begin
+            awaddr <= addr; awvalid <= '1';
+            wdata  <= data; wstrb  <= "1111"; wvalid <= '1';
+            handshake(awvalid, awready);
+            handshake(wvalid, wready);
+            wait until bvalid = '1';
+            cycle;
+        end procedure;
+
+        -- a full AXI4-Lite read, returning the data
+        procedure axi_read(signal araddr  : out std_logic_vector(31 downto 0);
+                            signal arvalid : out std_logic; signal arready : in std_logic;
+                            signal rdata   : in std_logic_vector(31 downto 0);
+                            signal rvalid  : in std_logic;
+                            addr : std_logic_vector(31 downto 0);
+                            variable result : out std_logic_vector(31 downto 0)) is
+        begin
+            araddr <= addr; arvalid <= '1';
+            handshake(arvalid, arready);
+            wait until rvalid = '1';
+            result := rdata;
+            cycle;
+        end procedure;
+
+        variable got : std_logic_vector(31 downto 0);
     begin
+        test_runner_setup(runner, runner_cfg);
         wait until not reset;
         cycle;
 
-        ------------------------------------------------------------
-        -- 1. data_manager write to addr 0x10 (bit2=0, low half), 0xDEADBEEF
-        d_awaddr <= x"00000010"; d_awvalid <= '1';
-        d_wdata  <= x"DEADBEEF"; d_wstrb <= "1111"; d_wvalid <= '1';
-        handshake(d_awvalid, d_awready);
-        handshake(d_wvalid, d_wready);
-        wait until d_bvalid = '1';
-        cycle;
+        while test_suite loop
 
-        -- check the unused (high) half of the beat stayed zero
-        report "progress: test1 write done";
-        check(mem(2)(31 downto 0) = x"DEADBEEF", "low-half write landed at the right bytes", errors);
-        check(mem(2)(63 downto 32) = x"00000000", "high half of a low-half write stays untouched", errors);
+            if run("data_manager_write_then_read_back_low_half") then
+                -- addr 0x10, bit2=0 -> low half of the 64-bit beat
+                axi_write(d_awaddr, d_awvalid, d_awready, d_wdata, d_wstrb, d_wvalid, d_wready,
+                          d_bvalid, x"00000010", x"DEADBEEF");
+                check_equal(mem(2)(31 downto 0), std_logic_vector'(x"DEADBEEF"),
+                            "low-half write landed at the right bytes");
+                check_equal(mem(2)(63 downto 32), std_logic_vector'(x"00000000"),
+                            "high half of a low-half write stays untouched");
 
-        ------------------------------------------------------------
-        -- 2. data_manager read it back
-        d_araddr <= x"00000010"; d_arvalid <= '1';
-        handshake(d_arvalid, d_arready);
-        wait until d_rvalid = '1';
-        report "progress: test2 read done";
-        check(d_rdata = x"DEADBEEF", "data_manager read back what it wrote (low half)", errors);
-        cycle;
+                axi_read(d_araddr, d_arvalid, d_arready, d_rdata, d_rvalid, x"00000010", got);
+                check_equal(got, std_logic_vector'(x"DEADBEEF"),
+                            "data_manager read back what it wrote (low half)");
 
-        ------------------------------------------------------------
-        -- 3. instruction_manager write to addr 0x14 (bit2=1, high half), 0xCAFEF00D
-        i_awaddr <= x"00000014"; i_awvalid <= '1';
-        i_wdata  <= x"CAFEF00D"; i_wstrb <= "1111"; i_wvalid <= '1';
-        handshake(i_awvalid, i_awready);
-        handshake(i_wvalid, i_wready);
-        wait until i_bvalid = '1';
-        cycle;
+            elsif run("instruction_manager_write_then_read_back_high_half") then
+                -- addr 0x14, bit2=1 -> high half of the 64-bit beat
+                axi_write(i_awaddr, i_awvalid, i_awready, i_wdata, i_wstrb, i_wvalid, i_wready,
+                          i_bvalid, x"00000014", x"CAFEF00D");
+                check_equal(mem(2)(63 downto 32), std_logic_vector'(x"CAFEF00D"),
+                            "high-half write landed at the right bytes");
+                check_equal(mem(2)(31 downto 0), std_logic_vector'(x"00000000"),
+                            "low half of a high-half write stays untouched");
 
-        report "progress: test3 write done";
-        check(mem(2)(63 downto 32) = x"CAFEF00D", "high-half write landed at the right bytes", errors);
-        check(mem(2)(31 downto 0) = x"DEADBEEF", "low half untouched by a high-half write", errors);
+                axi_read(i_araddr, i_arvalid, i_arready, i_rdata, i_rvalid, x"00000014", got);
+                check_equal(got, std_logic_vector'(x"CAFEF00D"),
+                            "instruction_manager read back what it wrote (high half)");
 
-        ------------------------------------------------------------
-        -- 4. instruction_manager reads it back
-        i_araddr <= x"00000014"; i_arvalid <= '1';
-        handshake(i_arvalid, i_arready);
-        wait until i_rvalid = '1';
-        report "progress: test4 read done";
-        check(i_rdata = x"CAFEF00D", "instruction_manager read back what it wrote (high half)", errors);
-        cycle;
+            elsif run("data_manager_wins_priority_under_contention") then
+                axi_write(d_awaddr, d_awvalid, d_awready, d_wdata, d_wstrb, d_wvalid, d_wready,
+                          d_bvalid, x"00000010", x"DEADBEEF");
+                axi_write(i_awaddr, i_awvalid, i_awready, i_wdata, i_wstrb, i_wvalid, i_wready,
+                          i_bvalid, x"00000014", x"CAFEF00D");
 
-        ------------------------------------------------------------
-        -- 5. priority: both masters present an AR in the same cycle - data_manager
-        --    must win first (fixed priority), instruction_manager must still be
-        --    served right after, each getting its OWN data back correctly
-        d_araddr <= x"00000010"; d_arvalid <= '1';
-        i_araddr <= x"00000014"; i_arvalid <= '1';
-        cycle;
-        check(d_arready = '1' and i_arready = '0', "data_manager AR wins priority over instruction_manager", errors);
-        handshake(d_arvalid, d_arready);
-        wait until d_rvalid = '1';
-        report "progress: test5a data read resolved";
-        check(d_rdata = x"DEADBEEF", "data_manager's read resolved correctly under contention", errors);
-        cycle;
-        handshake(i_arvalid, i_arready);
-        wait until i_rvalid = '1';
-        report "progress: test5b instr read resolved";
-        check(i_rdata = x"CAFEF00D", "instruction_manager's read resolved correctly after data_manager", errors);
-        cycle;
+                -- both masters present an AR in the same cycle - data_manager must
+                -- win first (fixed priority), instruction_manager right after
+                d_araddr <= x"00000010"; d_arvalid <= '1';
+                i_araddr <= x"00000014"; i_arvalid <= '1';
+                cycle;
+                check_equal(d_arready, '1', "data_manager AR wins priority over instruction_manager");
+                check_equal(i_arready, '0', "instruction_manager's AR waits while data_manager's is granted");
+                handshake(d_arvalid, d_arready);
+                wait until d_rvalid = '1';
+                check_equal(d_rdata, std_logic_vector'(x"DEADBEEF"),
+                            "data_manager's read resolved correctly under contention");
+                cycle;
+                handshake(i_arvalid, i_arready);
+                wait until i_rvalid = '1';
+                check_equal(i_rdata, std_logic_vector'(x"CAFEF00D"),
+                            "instruction_manager's read resolved correctly after data_manager");
+                cycle;
 
-        ------------------------------------------------------------
-        -- 6. write serialisation: instruction_manager must not be granted an AW
-        --    while data_manager's write is still waiting to send its W beat.
-        --    i_awvalid is withdrawn right after the check (rather than left
-        --    asserted across the unrelated wait below) because the bridge
-        --    grants it the instant w_pending clears, independent of when this
-        --    process gets back around to watching for it via handshake() -
-        --    leaving it up risks the grant landing "in the background" a
-        --    cycle or two before this process is looking, which then hangs
-        --    waiting for a second grant that never comes.
-        d_awaddr <= x"00000018"; d_awvalid <= '1';   -- AW accepted, W held back
-        handshake(d_awvalid, d_awready);
+            elsif run("write_serialisation_blocks_the_other_master") then
+                -- data_manager's write holds the bridge's one write slot until its
+                -- W phase is sent; instruction_manager's AW must wait for it.
+                --
+                -- i_awvalid is withdrawn right after the check (rather than left
+                -- asserted across the unrelated wait below) because the bridge
+                -- grants it the instant w_pending clears, independent of when
+                -- this process gets back around to watching for it via
+                -- handshake() - leaving it up risks the grant landing "in the
+                -- background" a cycle or two before this process is looking,
+                -- which then hangs waiting for a second grant that never comes.
+                d_awaddr <= x"00000018"; d_awvalid <= '1';   -- AW accepted, W held back
+                handshake(d_awvalid, d_awready);
 
-        i_awaddr <= x"00000018"; i_awvalid <= '1';
-        cycle;
-        check(i_awready = '0', "instruction_manager's AW is held off while a write's W phase is pending", errors);
-        i_awvalid <= '0';   -- withdraw - not accepted yet (i_awready was '0'), nothing lost
-        cycle;
+                i_awaddr <= x"00000018"; i_awvalid <= '1';
+                cycle;
+                check_equal(i_awready, '0',
+                            "instruction_manager's AW is held off while a write's W phase is pending");
+                i_awvalid <= '0';   -- withdraw - not accepted yet (i_awready was '0'), nothing lost
+                cycle;
 
-        d_wdata <= x"11112222"; d_wstrb <= "1111"; d_wvalid <= '1';
-        handshake(d_wvalid, d_wready);
-        wait until d_bvalid = '1';
-        cycle;
+                d_wdata <= x"11112222"; d_wstrb <= "1111"; d_wvalid <= '1';
+                handshake(d_wvalid, d_wready);
+                wait until d_bvalid = '1';
+                cycle;
 
-        i_awaddr <= x"00000018"; i_awvalid <= '1';   -- re-assert now that the coast is clear
-        handshake(i_awvalid, i_awready);
-        i_wdata <= x"33334444"; i_wstrb <= "1111"; i_wvalid <= '1';
-        handshake(i_wvalid, i_wready);
-        wait until i_bvalid = '1';
-        cycle;
-        report "progress: test6 serialisation done";
-        check(mem(3)(31 downto 0) = x"33334444", "instruction_manager's write went through after data_manager's finished", errors);
+                i_awaddr <= x"00000018"; i_awvalid <= '1';   -- re-assert now that the coast is clear
+                handshake(i_awvalid, i_awready);
+                i_wdata <= x"33334444"; i_wstrb <= "1111"; i_wvalid <= '1';
+                handshake(i_wvalid, i_wready);
+                wait until i_bvalid = '1';
+                cycle;
+                check_equal(mem(3)(31 downto 0), std_logic_vector'(x"33334444"),
+                            "instruction_manager's write went through after data_manager's finished");
+            end if;
+        end loop;
 
-        ------------------------------------------------------------
-        if errors = 0 then
-            report "PASS: hyperram_axi4lite_bridge_tb";
-        else
-            report "FAIL: " & integer'image(errors) & " check(s) failed" severity failure;
-        end if;
-        done <= true;
+        test_runner_cleanup(runner);
         wait;
     end process;
 
-end architecture sim;
+    test_runner_watchdog(runner, 10 us);
+
+end architecture vunit_simulation;

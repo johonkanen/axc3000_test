@@ -32,6 +32,9 @@ __pycache__/
 # nvc's compiled work library (sim/, niosv_zephyr/hw/sim/, ...)
 work/
 
+# VUnit's output dir (run.py)
+vunit_out/
+
 # niosv_zephyr: west workspace (zephyr + modules + SDK) is a multi-GB
 # multi-repo checkout, not ours to version - see niosv_zephyr/README.md
 niosv_zephyr/zephyr/

@@ -5,22 +5,24 @@
 -- float_to_fixed.vhd is an abstract interface in the multiply_add style:
 -- input / output records, create_float_to_fixed_typeref, a
 -- request_float_to_fixed procedure, get_fixed_result / *_is_ready, and a
--- separate fp32_to_hfloat glue function.  The hfloat reference type and
+-- separate fp32_to_hfloat glue function. The hfloat reference type and
 -- the pipeline depth are entity generics (floatref defaults to hfloat32).
 --
---   FP=../source/hVHDL_floating_point
---   nvc --std=2019 -a $FP/vhdl2008/float_typedefs_generic_pkg.vhd \
---                     ../float_to_fixed.vhd sim/float_to_fixed_tb.vhd
---   nvc --std=2019 -e float_to_fixed_tb -r
+--   python3 run.py -v "*float_to_fixed*"          (from the repo root)
 
 library ieee;
     use ieee.std_logic_1164.all;
     use ieee.numeric_std.all;
     use work.float_to_fixed_pkg.all;
 
-entity float_to_fixed_tb is end entity;
+library vunit_lib;
+    context vunit_lib.vunit_context;
 
-architecture sim of float_to_fixed_tb is
+entity float_to_fixed_tb is
+    generic (runner_cfg : string);
+end entity;
+
+architecture vunit_simulation of float_to_fixed_tb is
     constant f2f_ref : float_to_fixed_typeref := create_float_to_fixed_typeref(hfloat32);
     signal   f2f_in  : f2f_ref.f2f_in'subtype  := f2f_ref.f2f_in;
     signal   f2f_out : f2f_ref.f2f_out'subtype := f2f_ref.f2f_out;
@@ -57,20 +59,35 @@ begin
         end if;
     end process;
 
-    stim : process is
+    test_runner : process is
     begin
-        for i in cases'range loop
-            pat <= cases(i).p;
-            rdx <= cases(i).r;
-            for k in 0 to 6 loop wait until rising_edge(clock); end loop;
-            report "0x" & to_hstring(cases(i).p) & " radix " & integer'image(cases(i).r)
-                 & " -> " & integer'image(to_integer(get_fixed_result(f2f_out)))
-                 & "  (expect " & integer'image(cases(i).e) & ")";
-            assert abs(to_integer(get_fixed_result(f2f_out)) - cases(i).e) <= 1
-                report "  MISMATCH" severity error;
+        test_runner_setup(runner, runner_cfg);
+
+        while test_suite loop
+            if run("converts_every_case_within_1_lsb") then
+                for i in cases'range loop
+                    pat <= cases(i).p;
+                    rdx <= cases(i).r;
+                    for k in 0 to 6 loop wait until rising_edge(clock); end loop;
+                    info("0x" & to_hstring(cases(i).p) & " radix " & integer'image(cases(i).r)
+                         & " -> " & integer'image(to_integer(get_fixed_result(f2f_out)))
+                         & "  (expect " & integer'image(cases(i).e) & ")");
+                    check(abs(to_integer(get_fixed_result(f2f_out)) - cases(i).e) <= 1,
+                          "0x" & to_hstring(cases(i).p) & " radix " & integer'image(cases(i).r) & " mismatch");
+                    -- ready again immediately for the next request, every time -
+                    -- this only means something once at least one request has
+                    -- gone through, so it's checked here rather than as its own
+                    -- test (which, starting fresh with no prior request, has
+                    -- nothing to be "ready" after).
+                    check(float_to_fixed_is_ready(f2f_out), "not ready after case " & integer'image(i));
+                end loop;
+            end if;
         end loop;
-        assert float_to_fixed_is_ready(f2f_out) report "not ready" severity error;
-        report "all ok";
-        std.env.stop;
+
+        test_runner_cleanup(runner);
+        wait;
     end process;
+
+    test_runner_watchdog(runner, 10 us);
+
 end architecture;

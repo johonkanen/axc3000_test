@@ -205,6 +205,18 @@ Arduino MKR header (J1/J2) pin map: [docs/mkr_pinout.md](docs/mkr_pinout.md).
 
 Onboard HyperRAM pin map: [docs/hyperram_pinout.md](docs/hyperram_pinout.md).
 
+## Testing
+
+The VHDL testbenches (`sim/*_tb.vhd`, `niosv_zephyr/hw/sim/*_tb.vhd`) are
+[VUnit](https://vunit.github.io/) based, run with `nvc`:
+
+```
+pip install vunit_hdl        # once
+python3 run.py                # everything
+python3 run.py -l             # list the individual tests
+python3 run.py -v "*hyperram*" # run tests matching a pattern, verbose
+```
+
 ## IP
 
 Only the `.ip` files are committed; regenerate the HDL with `qsys-generate`.
