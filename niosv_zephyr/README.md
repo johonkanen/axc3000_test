@@ -21,6 +21,7 @@ so Linux is off the table on this core - see repo history / session notes).
 - [x] Phase 2 - first boot on hardware - **done: Zephyr's `hello_world` boots and prints `*** Booting Zephyr OS build v4.4.2 ***` / `Hello World! niosv_g/niosv_g` over the JTAG UART.** Took two real hardware bugs to get here (missing Reset Release IP, an `elf2hex` record-length mismatch) plus a `libncursesw` library conflict in `niosv-download` itself - all fixed, see `hw/README.md`. `hw/download.sh` now loads and runs an ELF over JTAG without reflashing, for fast iteration.
 - [ ] Phase 3 (stretch) - wire Nios V/g as a second Avalon-MM master into the existing `fpga_communications` register block so Zephyr can drive the FP32 FMA / PWM registers
 - [ ] Phase 4 (stretch) - swap the JTAG UART console for the board's real RS-232 pins (AG23/AG24), if a Zephyr driver exists for Intel's Avalon UART
+- [ ] Phase 5 (stretch) - execute Zephyr from the onboard HyperRAM instead of on-chip RAM, via `hw/hyperram_axi4lite_bridge.vhd` (arbitrates Nios V/g's two AXI4-Lite masters onto `source/hVHDL_memory_library`'s `hyperram_axi`; its own arbitration/width-adaptation logic is simulated and passing in `hw/sim/hyperram_axi4lite_bridge_tb.vhd`, but it's never been run against the real core or real HyperRAM pins yet - see `docs/hyperram_pinout.md` for the board's pins). Caches need re-enabling for this to be worth doing at all - HyperRAM's latency is much higher than on-chip M20K.
 
 ## Setup (Phase 0)
 
