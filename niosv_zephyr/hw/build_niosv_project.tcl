@@ -2,19 +2,19 @@
 # Quartus Prime Pro project script - Nios V/g + Zephyr bring-up (Phase 1)
 # Target board: Arrow AXC3000 (Agilex 3 A3CY100BM16AE7S)
 #
-# Build (run every command from this directory):
+# Build (run every command from this directory, or just run build_all.sh):
 #     qsys-script --script=build_niosv_system.tcl
-#     # each instance needs its own qsys-generate pass (qsys-generate on the
-#     # system file does not cascade into its nested .ip files):
-#     for f in cb cpu0 ram0 rb uart0; do
-#         qsys-generate ip/niosv_zephyr_sys/niosv_zephyr_sys_$f.ip --synthesis=VHDL --part=A3CY100BM16AE7S
-#     done
 #     qsys-generate niosv_zephyr_sys.qsys --synthesis=VHDL --part=A3CY100BM16AE7S
 #     quartus_sh    -t build_niosv_project.tcl
 #     quartus_syn niosv_zephyr
 #     quartus_fit niosv_zephyr
 #     quartus_sta niosv_zephyr
 #     quartus_asm niosv_zephyr
+#
+# The single qsys-generate above regenerates every instance (cb/cpu0/ram0/
+# rb/rr0/uart0) itself - no separate per-instance pass is needed. See the
+# QIP_FILE discovery below for why that still needs a glob instead of a
+# fixed path.
 #
 # No programming yet - Phase 1 only proves the hardware compiles. Phase 2
 # flashes it and loads Zephyr's hello_world over JTAG with niosv-download.
@@ -64,17 +64,24 @@ set_global_assignment -name VHDL_FILE $this_file_path/niosv_zephyr_top.vhd
 # ------------------------------------------------------------------- IP
 # The top system's own interconnect glue...
 set_global_assignment -name QIP_FILE $this_file_path/niosv_zephyr_sys/niosv_zephyr_sys.qip
-# ...plus each instance's own generated .qip - qsys-generate on the system
-# file does NOT cascade into generating/registering its instances' nested
-# .ip files; each needs its own `qsys-generate ip/.../<inst>.ip --synthesis=VHDL`
-# pass (same pattern as the repo-root build's pll_100.ip/native_fp32.ip)
-# before these resolve to real HDL instead of an empty "generic component".
-set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_cb/niosv_zephyr_sys_cb.qip
-set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_cpu0/niosv_zephyr_sys_cpu0.qip
-set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_ram0/niosv_zephyr_sys_ram0.qip
-set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_rb/niosv_zephyr_sys_rb.qip
-set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_rr0/niosv_zephyr_sys_rr0.qip
-set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_uart0/niosv_zephyr_sys_uart0.qip
+# ...plus each instance's own generated .qip. qsys-generate on the system
+# file regenerates every instance itself, but under its own disambiguating
+# suffix that increments on every single invocation (niosv_zephyr_sys_cb,
+# then _cb_1, _cb_2, ... - confirmed by direct experiment, not documented
+# anywhere found) independently of any separate per-instance qsys-generate
+# pass. Hardcoding the unsuffixed name here is what silently went stale
+# ("design library ... does not contain primary unit ...") once that
+# counter had ticked past 0 from earlier builds in the same environment.
+# Discover whatever suffix actually exists on disk right now instead of
+# assuming one. build_all.sh cleans ip/niosv_zephyr_sys/niosv_zephyr_sys_*/
+# before every regenerate, so exactly one match per instance is expected.
+foreach inst {cb cpu0 ram0 rb rr0 uart0} {
+    set matches [glob -nocomplain $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_${inst}*/niosv_zephyr_sys_${inst}*.qip]
+    if {[llength $matches] != 1} {
+        error "expected exactly one generated .qip for instance '$inst', found: $matches"
+    }
+    set_global_assignment -name QIP_FILE [lindex $matches 0]
+}
 
 # ---------------------------------------------------------- constraints
 set_global_assignment -name SDC_FILE $this_file_path/niosv_zephyr.sdc

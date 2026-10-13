@@ -13,6 +13,14 @@ niosv_zephyr/hw/niosv_zephyr_sys.qsys
 niosv_zephyr/hw/niosv_zephyr_sys/
 niosv_zephyr/hw/tmp-clearbox/
 niosv_zephyr/hw/*.hex
+niosv_zephyr/hw/build_niosv_system.qpf
+niosv_zephyr/hw/build_niosv_system.qsf
+niosv_zephyr/hw_*/
+# qsys-generate's top-level pass regenerates every instance itself under an
+# auto-incrementing disambiguation suffix (niosv_zephyr_sys_cb_0.ip,
+# _cb_1.ip, ...) that keeps climbing across invocations - only the plain,
+# unsuffixed .ip is the real committed baseline source.
+niosv_zephyr/hw/ip/niosv_zephyr_sys/niosv_zephyr_sys_*_[0-9]*.ip
 *.rpt
 *.summary
 *.pin
