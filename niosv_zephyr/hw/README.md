@@ -1,86 +1,85 @@
-# hw/ — Nios V/g processor subsystem (Phase 1)
+# hw/ — Nios V/g processor subsystem (Phase 1 - done)
 
 Platform Designer system: Nios V/g + 256 KB on-chip RAM + JTAG UART console,
 clocked directly from the board's 25 MHz oscillator (no PLL yet). Memory map
 matches `niosv_zephyr/README.md`'s table exactly, taken from Zephyr's
 `boards/intel/niosv_g/niosv_g.dts`, so the stock board files need no address
-overlay.
+overlay. Builds clean: `niosv_zephyr.sof` generated, Fitter successful,
+2,741 ALMs (8%), 132/262 M20K blocks (50%, the 256 KB RAM), 2 DSP blocks, all
+timing slacks positive (setup +30.5 ns, hold +0.026 ns on `clk_clk`).
 
-## Status: wiring designed and validated, generation blocked
+## What it took to get `qsys-generate` to produce real HDL
 
-The architecture below is real - introspected against the actual installed
-IP (`intel_niosv_g`, `intel_onchip_memory`, `altera_avalon_jtag_uart`,
-`altera_clock_bridge`, `altera_reset_bridge`) via `qsys-script`'s
-`get_instance_parameters`/`get_instance_interfaces`, and the connections
-were corrected against real `qsys-generate` errors (see `build_niosv_system.tcl`'s
-comment on the IRQ connection - `cpu0.platform_irq_rx`/`uart0.irq`'s role
-names are the reverse of what their names suggest). `qsys-validate` passes
-clean.
+`qsys-script`'s `save_system` always converts every instance to
+`altera_generic_component` in the saved `.qsys` XML - this turned out to be
+a **red herring, not a bug**: the real cause was two separate gaps.
 
-**But this Quartus 26.1.1 Linux install cannot turn that `.qsys` into real
-HDL.** `qsys-script`'s `save_system` unconditionally rewrites every instance
-to `altera_generic_component` in the saved XML - confirmed with a
-single-component (`altera_clock_bridge`) isolation test, so it's not about
-component complexity or our specific wiring. `qsys-generate --synthesis=VHDL`
-then produces a top-level file whose `library niosv_zephyr_sys_<instance>`
-use-clauses point at libraries nothing was ever written into (`design
-library ... does not contain primary unit ...`), because a generic
-component has no backing HDL unless one is explicitly attached via
-`add_instantiation_hdl_file`.
+1. **`qsys-generate <system>.qsys --synthesis=VHDL` does not cascade into
+   each instance's own nested `.ip` file.** Every instance (even ones added
+   with the simple `add_instance`/`add_connection` API in
+   `build_niosv_system.tcl`) gets backed by a standalone
+   `ip/niosv_zephyr_sys/niosv_zephyr_sys_<inst>.ip` file - same shape as the
+   repo-root build's `ip/pll_100/pll_100.ip`. Each one needs its own
+   `qsys-generate <that>.ip --synthesis=VHDL --part=...` pass *before* the
+   system-level pass, or its library stays empty (`design library ... does
+   not contain primary unit ...`). Confirmed by generating each of the 5
+   individually: `cpu0` alone produced 113 files (the real Nios V/g core,
+   debug module, and timer sub-blocks).
+2. **The generated system's VHDL registers under a library named after the
+   system** (`niosv_zephyr_sys`), not `work`. `niosv_zephyr_top.vhd` must
+   instantiate it via a `component` declaration, not `entity work.X` (which
+   fails with `design library altera_work does not contain primary unit
+   niosv_zephyr_sys`).
 
-Tried and ruled out:
-- `package require qsys 20.1` vs plain `package require qsys` (API version)
-- `QSYS_ROOTDIR` pointed at a stale `26.1` instead of `26.1.1` (fixed it
-  regardless, no change)
-- `reload_ip_catalog` before `create_system`
-- `--quartus-project`/`--rev` attached (real device context) for both
-  `qsys-script` and `qsys-generate`
-- `validate_instance` before save
-- `qsys-generate --upgrade-ip-cores` as a pre-pass
-- `reload_component_footprint <inst>` on a reloaded system (reports
-  success, re-saves as generic anyway)
-- `save_composed_hw_tcl_as_qsys` instead of `save_system` (errors: `null`)
+So the working order is:
+```
+qsys-script --script=build_niosv_system.tcl
+for f in cb cpu0 ram0 rb uart0; do
+    qsys-generate ip/niosv_zephyr_sys/niosv_zephyr_sys_$f.ip --synthesis=VHDL --part=A3CY100BM16AE7S
+done
+qsys-generate niosv_zephyr_sys.qsys --synthesis=VHDL --part=A3CY100BM16AE7S
+```
+and the Quartus project needs `QIP_FILE` for the top system's own
+`niosv_zephyr_sys/niosv_zephyr_sys.qip` **plus** each instance's
+`ip/niosv_zephyr_sys/niosv_zephyr_sys_<inst>/niosv_zephyr_sys_<inst>.qip` -
+see `build_niosv_project.tcl`.
 
-The saved XML does carry an `<originalModuleInfo><className>` (e.g.
-`altera_clock_bridge`, version `19.2.0`) and a sibling per-instance `.ip`
-file (`ip/<system>/<system>_<inst>.ip`) with the real parameterization, so
-the information isn't lost - but nothing in the CLI tools I tried will
-consume it to re-resolve a generic instance back to its real component for
-generation. This looks like a genuine limitation/bug in headless
-*origination* of a brand-new system via `qsys-script` in this specific
-build (26.1.1), not in editing/regenerating an already-GUI-saved one.
-
-**Next step**: needs a real Platform Designer GUI session once - either
-open Platform Designer on the Windows-side Quartus Pro 26.1.1 install and
-run `build_niosv_system.tcl` there (File menu → System Scripting → Run
-Script…, or paste at a Tcl console), or open the broken generated
-`niosv_zephyr_sys.qsys` and use the documented per-instance "generic
-component → right-click → fix from IP Catalog" recovery. Either should
-produce a `.qsys` that resolves normally; from there headless
-`qsys-generate`/`quartus_syn`/`fit`/`sta`/`asm` should work exactly like
-the repo-root `uart_bringup` build does today.
+The wiring itself (interfaces/parameters introspected live against the
+installed IP, base addresses, the IRQ connection direction - `cpu0`'s
+`platform_irq_rx` is the connection "start" despite the `_rx` name,
+`uart0.irq` is the "end") was validated earlier via `qsys-validate` and real
+`qsys-generate` error messages; none of that changed.
 
 ## Files
 
 | file | purpose |
 |---|---|
-| `build_niosv_system.tcl` | `qsys-script` source: builds the Platform Designer system (the actual design, re-run this after a GUI fix if you re-derive it) |
-| `build_niosv_project.tcl` | `quartus_sh` source: creates the Quartus project, pins, SDC - mirrors the repo-root `build_uart_bringup.tcl` pattern |
-| `niosv_zephyr_top.vhd` | board-level wrapper: `clk_clk` (pin A7) / `reset_reset_n` (pin A12) straight into the qsys system's `clk_in`/`reset_in` exports |
+| `build_niosv_system.tcl` | `qsys-script` source: builds the Platform Designer system |
+| `build_niosv_project.tcl` | `quartus_sh` source: creates the Quartus project, pins, SDC, and all 6 `QIP_FILE`s - mirrors the repo-root `build_uart_bringup.tcl` pattern |
+| `niosv_zephyr_top.vhd` | board-level wrapper: `clk_clk` (pin A7) / `reset_reset_n` (pin A12) into the qsys system's `clk_in`/`reset_in` exports, via a `component` instantiation (see above) |
 | `niosv_zephyr.sdc` | `create_clock` on `clk_clk` (no PLL to inherit a clock from this time) |
+| `ip/niosv_zephyr_sys/niosv_zephyr_sys_{cb,cpu0,ram0,rb,uart0}.ip` | per-instance IP variation files - **committed**, same convention as the repo-root `ip/pll_100/pll_100.ip`. Their generated HDL trees (`ip/niosv_zephyr_sys/niosv_zephyr_sys_<inst>/`) are not. |
 
-Generated output (`niosv_zephyr_sys.qsys`, `niosv_zephyr_sys/`, the Quartus
-project files) is **not committed** - regenerate with:
+Generated output (`niosv_zephyr_sys.qsys`, `niosv_zephyr_sys/`, the per-instance
+generated trees, the Quartus project/output files) is **not committed**.
+Full rebuild from a clean checkout:
 
 ```
 export PATH="$HOME/altera_pro/26.1.1/quartus/bin:$HOME/altera_pro/26.1.1/quartus/sopc_builder/bin:$PATH"
+qsys-script --script=build_niosv_system.tcl
+for f in cb cpu0 ram0 rb uart0; do
+    qsys-generate ip/niosv_zephyr_sys/niosv_zephyr_sys_$f.ip --synthesis=VHDL --part=A3CY100BM16AE7S
+done
+qsys-generate niosv_zephyr_sys.qsys --synthesis=VHDL --part=A3CY100BM16AE7S
 quartus_sh -t build_niosv_project.tcl
-qsys-script --quartus-project=niosv_zephyr --rev=niosv_zephyr --script=build_niosv_system.tcl
-qsys-generate --quartus-project=niosv_zephyr --rev=niosv_zephyr niosv_zephyr_sys.qsys --synthesis=VHDL --part=A3CY100BM16AE7S
 quartus_syn niosv_zephyr
 quartus_fit niosv_zephyr
 quartus_sta niosv_zephyr
 quartus_asm niosv_zephyr
 ```
 
-(currently fails at `quartus_syn` for the reason above.)
+## Next: Phase 2
+
+Flash `output_files/niosv_zephyr.sof` over JTAG (same cable/`jtagd` setup as
+`program.sh`, or adapt it), load Zephyr's `hello_world.elf` with
+`niosv-download`, and watch the console with `juart-terminal`.

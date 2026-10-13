@@ -3,8 +3,12 @@
 # Target board: Arrow AXC3000 (Agilex 3 A3CY100BM16AE7S)
 #
 # Build (run every command from this directory):
-#     git submodule update --init   (none needed yet - no submodules here)
-#     qsys-script   --script=build_niosv_system.tcl
+#     qsys-script --script=build_niosv_system.tcl
+#     # each instance needs its own qsys-generate pass (qsys-generate on the
+#     # system file does not cascade into its nested .ip files):
+#     for f in cb cpu0 ram0 rb uart0; do
+#         qsys-generate ip/niosv_zephyr_sys/niosv_zephyr_sys_$f.ip --synthesis=VHDL --part=A3CY100BM16AE7S
+#     done
 #     qsys-generate niosv_zephyr_sys.qsys --synthesis=VHDL --part=A3CY100BM16AE7S
 #     quartus_sh    -t build_niosv_project.tcl
 #     quartus_syn niosv_zephyr
@@ -58,7 +62,18 @@ set_global_assignment -name USE_INIT_DONE SDM_IO0
 set_global_assignment -name VHDL_FILE $this_file_path/niosv_zephyr_top.vhd
 
 # ------------------------------------------------------------------- IP
+# The top system's own interconnect glue...
 set_global_assignment -name QIP_FILE $this_file_path/niosv_zephyr_sys/niosv_zephyr_sys.qip
+# ...plus each instance's own generated .qip - qsys-generate on the system
+# file does NOT cascade into generating/registering its instances' nested
+# .ip files; each needs its own `qsys-generate ip/.../<inst>.ip --synthesis=VHDL`
+# pass (same pattern as the repo-root build's pll_100.ip/native_fp32.ip)
+# before these resolve to real HDL instead of an empty "generic component".
+set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_cb/niosv_zephyr_sys_cb.qip
+set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_cpu0/niosv_zephyr_sys_cpu0.qip
+set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_ram0/niosv_zephyr_sys_ram0.qip
+set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_rb/niosv_zephyr_sys_rb.qip
+set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_uart0/niosv_zephyr_sys_uart0.qip
 
 # ---------------------------------------------------------- constraints
 set_global_assignment -name SDC_FILE $this_file_path/niosv_zephyr.sdc

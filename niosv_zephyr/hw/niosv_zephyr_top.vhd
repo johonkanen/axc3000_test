@@ -15,9 +15,21 @@ entity niosv_zephyr_top is
 end entity niosv_zephyr_top;
 
 architecture rtl of niosv_zephyr_top is
+
+    -- Platform Designer registers its generated system under a library
+    -- named after the system ("niosv_zephyr_sys"), not "work" - a plain
+    -- `entity work.niosv_zephyr_sys` instantiation fails to resolve
+    -- ("design library altera_work does not contain primary unit ...").
+    component niosv_zephyr_sys is
+        port (
+            clk_in_clk       : in std_logic := '0';
+            reset_in_reset_n : in std_logic := '0'
+        );
+    end component niosv_zephyr_sys;
+
 begin
 
-    u_sys : entity work.niosv_zephyr_sys
+    u_sys : niosv_zephyr_sys
         port map (
             clk_in_clk       => clk_clk,
             reset_in_reset_n => reset_reset_n

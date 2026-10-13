@@ -10,13 +10,13 @@ so Linux is off the table on this core - see repo history / session notes).
 |------|----------|
 | `zephyr/` | west workspace (zephyrproject), pinned to **v4.4.2**. **Not committed** - see Setup. |
 | `.venv/` | Python 3.12 venv for west/Zephyr. **Not committed.** |
-| `hw/` | Platform Designer system + Quartus project/build scripts for the Nios V/g processor subsystem. Phase 1, **in progress - blocked**, see below. |
+| `hw/` | Platform Designer system + Quartus project/build scripts for the Nios V/g processor subsystem. Phase 1, **done**. |
 | `zephyr-revision.txt` | `west list` output - exact pinned commit of every module, for reproducing the workspace. |
 
 ## Phases
 
 - [x] Phase 0 - toolchain (`west`, Zephyr SDK, zephyrproject workspace in `zephyr/`) - **done, verified with a real build**
-- [ ] Phase 1 - minimal Nios V/g Platform Designer system in `hw/`, memory map matched to the addresses below - **wiring designed and validated, blocked on a Quartus 26.1.1 headless-tooling bug, see `hw/README.md`**
+- [x] Phase 1 - minimal Nios V/g Platform Designer system in `hw/`, memory map matched to the addresses below - **done: `niosv_zephyr.sof` builds clean (2,741 ALMs, all timing slacks positive), see `hw/README.md`**
 - [ ] Phase 2 - first boot on hardware: flash with `niosv-download`, console via `juart-terminal`
 - [ ] Phase 3 (stretch) - wire Nios V/g as a second Avalon-MM master into the existing `fpga_communications` register block so Zephyr can drive the FP32 FMA / PWM registers
 - [ ] Phase 4 (stretch) - swap the JTAG UART console for the board's real RS-232 pins (AG23/AG24), if a Zephyr driver exists for Intel's Avalon UART
