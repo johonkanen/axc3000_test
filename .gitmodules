@@ -7,3 +7,6 @@
 [submodule "source/hVHDL_fpga_interconnect"]
 	path = source/hVHDL_fpga_interconnect
 	url = https://github.com/hVHDL/hVHDL_fpga_interconnect.git
+[submodule "source/hVHDL_memory_library"]
+	path = source/hVHDL_memory_library
+	url = https://github.com/hVHDL/hVHDL_memory_library.git
