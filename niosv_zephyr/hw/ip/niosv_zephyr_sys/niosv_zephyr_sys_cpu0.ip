@@ -2262,12 +2262,12 @@ Altera and sold by Altera or its authorized distributors.-->
         <ipxact:parameter parameterId="instSlaveMapParam" type="string">
           <ipxact:name>instSlaveMapParam</ipxact:name>
           <ipxact:displayName>instSlaveMapParam</ipxact:displayName>
-          <ipxact:value>&lt;address-map&gt;&lt;slave name='ram0.s1' start='0x0' end='0x40000' datawidth='32' /&gt;&lt;/address-map&gt;</ipxact:value>
+          <ipxact:value>&lt;address-map&gt;&lt;slave name='ram0.s1' start='0x0' end='0x40000' datawidth='32' /&gt;&lt;slave name='cpu0.dm_agent' start='0x40000' end='0x50000' datawidth='32' /&gt;&lt;/address-map&gt;</ipxact:value>
         </ipxact:parameter>
         <ipxact:parameter parameterId="dataSlaveMapParam" type="string">
           <ipxact:name>dataSlaveMapParam</ipxact:name>
           <ipxact:displayName>dataSlaveMapParam</ipxact:displayName>
-          <ipxact:value>&lt;address-map&gt;&lt;slave name='ram0.s1' start='0x0' end='0x40000' datawidth='32' /&gt;&lt;slave name='cpu0.timer_sw_agent' start='0x90000' end='0x90040' datawidth='32' /&gt;&lt;slave name='uart0.avalon_jtag_slave' start='0x90078' end='0x90080' datawidth='32' /&gt;&lt;/address-map&gt;</ipxact:value>
+          <ipxact:value>&lt;address-map&gt;&lt;slave name='ram0.s1' start='0x0' end='0x40000' datawidth='32' /&gt;&lt;slave name='cpu0.dm_agent' start='0x40000' end='0x50000' datawidth='32' /&gt;&lt;slave name='cpu0.timer_sw_agent' start='0x90000' end='0x90040' datawidth='32' /&gt;&lt;slave name='uart0.avalon_jtag_slave' start='0x90078' end='0x90080' datawidth='32' /&gt;&lt;/address-map&gt;</ipxact:value>
         </ipxact:parameter>
         <ipxact:parameter parameterId="enableMulDiv" type="bit">
           <ipxact:name>enableMulDiv</ipxact:name>
@@ -4085,7 +4085,7 @@ Altera and sold by Altera or its authorized distributors.-->
                 &lt;suppliedSystemInfos&gt;
                     &lt;entry&gt;
                         &lt;key&gt;ADDRESS_MAP&lt;/key&gt;
-                        &lt;value&gt;&amp;lt;address-map&amp;gt;&amp;lt;slave name='ram0.s1' start='0x0' end='0x40000' datawidth='32' /&amp;gt;&amp;lt;slave name='cpu0.timer_sw_agent' start='0x90000' end='0x90040' datawidth='32' /&amp;gt;&amp;lt;slave name='uart0.avalon_jtag_slave' start='0x90078' end='0x90080' datawidth='32' /&amp;gt;&amp;lt;/address-map&amp;gt;&lt;/value&gt;
+                        &lt;value&gt;&amp;lt;address-map&amp;gt;&amp;lt;slave name='ram0.s1' start='0x0' end='0x40000' datawidth='32' /&amp;gt;&amp;lt;slave name='cpu0.dm_agent' start='0x40000' end='0x50000' datawidth='32' /&amp;gt;&amp;lt;slave name='cpu0.timer_sw_agent' start='0x90000' end='0x90040' datawidth='32' /&amp;gt;&amp;lt;slave name='uart0.avalon_jtag_slave' start='0x90078' end='0x90080' datawidth='32' /&amp;gt;&amp;lt;/address-map&amp;gt;&lt;/value&gt;
                     &lt;/entry&gt;
                 &lt;/suppliedSystemInfos&gt;
                 &lt;consumedSystemInfos/&gt;
@@ -4119,7 +4119,7 @@ Altera and sold by Altera or its authorized distributors.-->
                 &lt;suppliedSystemInfos&gt;
                     &lt;entry&gt;
                         &lt;key&gt;ADDRESS_MAP&lt;/key&gt;
-                        &lt;value&gt;&amp;lt;address-map&amp;gt;&amp;lt;slave name='ram0.s1' start='0x0' end='0x40000' datawidth='32' /&amp;gt;&amp;lt;/address-map&amp;gt;&lt;/value&gt;
+                        &lt;value&gt;&amp;lt;address-map&amp;gt;&amp;lt;slave name='ram0.s1' start='0x0' end='0x40000' datawidth='32' /&amp;gt;&amp;lt;slave name='cpu0.dm_agent' start='0x40000' end='0x50000' datawidth='32' /&amp;gt;&amp;lt;/address-map&amp;gt;&lt;/value&gt;
                     &lt;/entry&gt;
                 &lt;/suppliedSystemInfos&gt;
                 &lt;consumedSystemInfos/&gt;

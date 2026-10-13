@@ -10,14 +10,15 @@ so Linux is off the table on this core - see repo history / session notes).
 |------|----------|
 | `zephyr/` | west workspace (zephyrproject), pinned to **v4.4.2**. **Not committed** - see Setup. |
 | `.venv/` | Python 3.12 venv for west/Zephyr. **Not committed.** |
-| `hw/` | Platform Designer system + Quartus project/build scripts for the Nios V/g processor subsystem. Phase 1, **done**. |
+| `hw/` | Platform Designer system + Quartus project/build scripts for the Nios V/g processor subsystem. Phases 1 & 2, **done** - Zephyr boots on real hardware. |
+| `zephyr_overlays/` | devicetree overlays applied at `west build` time - currently just the 25 MHz clock-frequency fix. |
 | `zephyr-revision.txt` | `west list` output - exact pinned commit of every module, for reproducing the workspace. |
 
 ## Phases
 
 - [x] Phase 0 - toolchain (`west`, Zephyr SDK, zephyrproject workspace in `zephyr/`) - **done, verified with a real build**
-- [x] Phase 1 - minimal Nios V/g Platform Designer system in `hw/`, memory map matched to the addresses below - **done: `niosv_zephyr.sof` builds clean (2,741 ALMs, all timing slacks positive), see `hw/README.md`**
-- [ ] Phase 2 - first boot on hardware: flash with `niosv-download`, console via `juart-terminal`
+- [x] Phase 1 - minimal Nios V/g Platform Designer system in `hw/`, memory map matched to the addresses below - **done: `niosv_zephyr.sof` builds clean (~2,700 ALMs, all timing slacks positive), see `hw/README.md`**
+- [x] Phase 2 - first boot on hardware - **done: Zephyr's `hello_world` boots and prints `*** Booting Zephyr OS build v4.4.2 ***` / `Hello World! niosv_g/niosv_g` over the JTAG UART.** Took two real hardware bugs to get here (missing Reset Release IP, an `elf2hex` record-length mismatch) - see `hw/README.md`. Live `niosv-download` isn't fully working yet (GDB hits a library conflict); using a hex-baked-into-RAM bring-up path instead for now.
 - [ ] Phase 3 (stretch) - wire Nios V/g as a second Avalon-MM master into the existing `fpga_communications` register block so Zephyr can drive the FP32 FMA / PWM registers
 - [ ] Phase 4 (stretch) - swap the JTAG UART console for the board's real RS-232 pins (AG23/AG24), if a Zephyr driver exists for Intel's Avalon UART
 

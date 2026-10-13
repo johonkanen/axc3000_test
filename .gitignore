@@ -12,6 +12,7 @@ niosv_zephyr.qpf
 niosv_zephyr/hw/niosv_zephyr_sys.qsys
 niosv_zephyr/hw/niosv_zephyr_sys/
 niosv_zephyr/hw/tmp-clearbox/
+niosv_zephyr/hw/*.hex
 *.rpt
 *.summary
 *.pin

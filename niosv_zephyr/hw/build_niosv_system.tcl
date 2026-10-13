@@ -24,6 +24,14 @@ add_instance rb altera_reset_bridge
 set_instance_parameter_value rb ACTIVE_LOW_RESET 1
 add_connection cb.out_clk rb.clk
 
+# Reset Release IP - Intel's own AXC3000 NIOSV_lab reference wires this
+# alongside the plain external reset (Platform Designer auto-merges
+# multiple reset sources into one sink). Critical Warning 20759 ("Use the
+# Reset Release IP in Agilex 3 designs to ensure a successful
+# configuration") says this is load-bearing, not cosmetic, on this family.
+add_instance rr0 intel_user_rst_clkgate
+set_instance_parameter_value rr0 outputType {Reset Interface}
+
 # ---------------------------------------------------------------- Nios V/g core
 add_instance cpu0 intel_niosv_g
 set_instance_parameter_value cpu0 clockFrequency 25000000.0
@@ -51,6 +59,10 @@ add_connection rb.out_reset cpu0.reset
 add_connection rb.out_reset ram0.reset1
 add_connection rb.out_reset uart0.reset
 
+add_connection rr0.ninit_done cpu0.reset
+add_connection rr0.ninit_done ram0.reset1
+add_connection rr0.ninit_done uart0.reset
+
 # ---------------------------------------------------------------- memory map
 add_connection cpu0.instruction_manager ram0.s1
 add_connection cpu0.data_manager        ram0.s1
@@ -61,6 +73,17 @@ set_connection_parameter_value cpu0.data_manager/uart0.avalon_jtag_slave baseAdd
 
 add_connection cpu0.data_manager cpu0.timer_sw_agent
 set_connection_parameter_value cpu0.data_manager/cpu0.timer_sw_agent baseAddress 0x00090000
+
+# ---------------------------------------------------------------- debug module
+# Intel's own AXC3000 NIOSV_lab reference (ArrowElectronics/altera_workshops)
+# wires dm_agent from BOTH masters at 0x40000 - we'd left it unconnected,
+# matching the "cpu0.dm_agent is not connected" warning being benign per
+# qsys-generate, but the reference's wiring is the one actually verified
+# working on this board, so match it.
+add_connection cpu0.data_manager        cpu0.dm_agent
+add_connection cpu0.instruction_manager cpu0.dm_agent
+set_connection_parameter_value cpu0.data_manager/cpu0.dm_agent        baseAddress 0x00040000
+set_connection_parameter_value cpu0.instruction_manager/cpu0.dm_agent baseAddress 0x00040000
 
 # ---------------------------------------------------------------- platform interrupt (uart0 -> local IRQ 16)
 # Despite the _rx name, cpu0.platform_irq_rx is the connection's "start"

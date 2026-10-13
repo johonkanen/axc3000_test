@@ -73,6 +73,7 @@ set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_z
 set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_cpu0/niosv_zephyr_sys_cpu0.qip
 set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_ram0/niosv_zephyr_sys_ram0.qip
 set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_rb/niosv_zephyr_sys_rb.qip
+set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_rr0/niosv_zephyr_sys_rr0.qip
 set_global_assignment -name QIP_FILE $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_uart0/niosv_zephyr_sys_uart0.qip
 
 # ---------------------------------------------------------- constraints
