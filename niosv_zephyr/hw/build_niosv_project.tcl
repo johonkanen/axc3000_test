@@ -80,6 +80,7 @@ set_global_assignment -name VHDL_FILE $MEMLIB/hyperram/hyperram_pkg.vhd
 set_global_assignment -name VHDL_FILE $MEMLIB/hyperram/hyperram_core.vhd
 set_global_assignment -name VHDL_FILE $MEMLIB/hyperram/hyperram_axi.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/hyperram_pins.vhd
+set_global_assignment -name VHDL_FILE $this_file_path/hyperram_axi4lite_bridge.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/hyperram_pll_reconfig.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/niosv_zephyr_top.vhd
 
@@ -97,8 +98,15 @@ set_global_assignment -name QIP_FILE $this_file_path/niosv_zephyr_sys/niosv_zeph
 # Discover whatever suffix actually exists on disk right now instead of
 # assuming one. build_all.sh cleans ip/niosv_zephyr_sys/niosv_zephyr_sys_*/
 # before every regenerate, so exactly one match per instance is expected.
-foreach inst {cb cpu0 ram0 rb rr0 uart0 pio_hr_status pio_hr_debug_lo pio_hr_debug_hi pio_hr_timeouts} {
-    set matches [glob -nocomplain $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_${inst}*/niosv_zephyr_sys_${inst}*.qip]
+# Exact instance name plus an optional numeric suffix only - a bare
+# ${inst}* glob would also match cb_hr when looking for cb.
+foreach inst {cb cpu0 ram0 rb rr0 uart0 pio_hr_status pio_hr_debug_lo pio_hr_debug_hi pio_hr_timeouts cb_hr rb_hr hr_axi} {
+    set matches {}
+    foreach q [glob -nocomplain $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_${inst}*/niosv_zephyr_sys_${inst}*.qip] {
+        if {[regexp "^niosv_zephyr_sys_${inst}(_\\d+)?\\.qip\$" [file tail $q]]} {
+            lappend matches $q
+        }
+    }
     if {[llength $matches] != 1} {
         error "expected exactly one generated .qip for instance '$inst', found: $matches"
     }

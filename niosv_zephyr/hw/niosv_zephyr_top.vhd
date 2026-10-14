@@ -4,11 +4,14 @@
 -- plus a standalone HyperRAM bring-up block (Phase 5/6, electrical and
 -- calibration-only so far - see niosv_zephyr/README.md).
 --
--- The HyperRAM core (source/hVHDL_memory_library's hyperram_axi) is not
--- yet wired onto Nios V/g's bus: its AXI3 port is tied off (arw_valid='0')
--- below. This phase only proves the physical pins, clocking and the
--- core's own calibration self-test work on real silicon; status/debug is
--- read back by Nios V/g over four read-only PIO registers
+-- The HyperRAM (source/hVHDL_memory_library's hyperram_axi) is a 16 MB
+-- data window at 0x01000000 on Nios V/g's data_manager: niosv_zephyr_sys
+-- exports an AXI4-Lite manager (hr_axi, already crossed into the 100 MHz
+-- HyperRAM clock domain by Platform Designer), and hyperram_axi4lite_bridge
+-- adapts it to hyperram_axi's native port (32-bit transfers into its 64-bit
+-- beats). The instruction-side port of that bridge is unused (tied off).
+-- Calibration status/debug is read back by Nios V/g over four read-only PIO
+-- registers
 -- (pio_hr_status/_debug_lo/_debug_hi/_timeouts, exported from
 -- niosv_zephyr_sys as hr_status/hr_debug_lo/hr_debug_hi/hr_timeouts), via
 -- a plain double-flop synchroniser into the 25 MHz Nios V domain - fine
@@ -136,6 +139,37 @@ architecture rtl of niosv_zephyr_top is
     signal fpga_out : hyperram_ddr_fpga_out_record;
     signal fpga_in  : hyperram_ddr_fpga_in_record;
 
+    -- niosv_zephyr_sys's HyperRAM window (AXI4-Lite, 100 MHz domain)
+    signal hr_awaddr  : std_logic_vector(23 downto 0);
+    signal hr_awvalid, hr_awready : std_logic;
+    signal hr_wdata   : std_logic_vector(31 downto 0);
+    signal hr_wstrb   : std_logic_vector(3 downto 0);
+    signal hr_wvalid, hr_wready : std_logic;
+    signal hr_bresp   : std_logic_vector(1 downto 0);
+    signal hr_bvalid, hr_bready : std_logic;
+    signal hr_araddr  : std_logic_vector(23 downto 0);
+    signal hr_arvalid, hr_arready : std_logic;
+    signal hr_rdata   : std_logic_vector(31 downto 0);
+    signal hr_rresp   : std_logic_vector(1 downto 0);
+    signal hr_rvalid, hr_rready : std_logic;
+
+    -- hyperram_axi's native port
+    signal arw_valid, arw_ready, arw_write : std_logic;
+    signal arw_addr  : std_logic_vector(31 downto 0);
+    signal arw_id    : std_logic_vector(7 downto 0);
+    signal arw_len   : std_logic_vector(7 downto 0);
+    signal arw_size  : std_logic_vector(2 downto 0);
+    signal arw_burst : std_logic_vector(1 downto 0);
+    signal w_valid, w_ready, w_last : std_logic;
+    signal w_data    : std_logic_vector(63 downto 0);
+    signal w_strb    : std_logic_vector(7 downto 0);
+    signal b_valid, b_ready : std_logic;
+    signal b_id      : std_logic_vector(7 downto 0);
+    signal r_valid, r_ready, r_last : std_logic;
+    signal r_data    : std_logic_vector(63 downto 0);
+    signal r_id      : std_logic_vector(7 downto 0);
+    signal r_resp    : std_logic_vector(1 downto 0);
+
     signal hr_status_bits  : std_logic_vector(31 downto 0);
     signal hr_debug_bits   : std_logic_vector(63 downto 0);
     signal hr_timeouts_cnt : unsigned(15 downto 0);
@@ -239,31 +273,31 @@ begin
             clock => rpll_clk0,
             reset => hyperram_reset,
 
-            arw_valid => '0',
-            arw_ready => open,
-            arw_addr  => (others => '0'),
-            arw_id    => (others => '0'),
-            arw_len   => (others => '0'),
-            arw_size  => "000",
-            arw_burst => "00",
-            arw_write => '0',
+            arw_valid => arw_valid,
+            arw_ready => arw_ready,
+            arw_addr  => arw_addr,
+            arw_id    => arw_id,
+            arw_len   => arw_len,
+            arw_size  => arw_size,
+            arw_burst => arw_burst,
+            arw_write => arw_write,
 
-            w_valid => '0',
-            w_ready => open,
-            w_data  => (others => '0'),
-            w_strb  => (others => '0'),
-            w_last  => '0',
+            w_valid => w_valid,
+            w_ready => w_ready,
+            w_data  => w_data,
+            w_strb  => w_strb,
+            w_last  => w_last,
 
-            b_valid => open,
-            b_ready => '0',
-            b_id    => open,
+            b_valid => b_valid,
+            b_ready => b_ready,
+            b_id    => b_id,
 
-            r_valid => open,
-            r_ready => '0',
-            r_data  => open,
-            r_id    => open,
-            r_resp  => open,
-            r_last  => open,
+            r_valid => r_valid,
+            r_ready => r_ready,
+            r_data  => r_data,
+            r_id    => r_id,
+            r_resp  => r_resp,
+            r_last  => r_last,
 
             calibration_done   => open,
             calibration_passed => open,
@@ -275,6 +309,71 @@ begin
             phase_shift_output => 0,
             fpga_out           => fpga_out,
             fpga_in            => fpga_in
+        );
+
+    u_hr_bridge : entity work.hyperram_axi4lite_bridge
+        port map (
+            clock => rpll_clk0,
+            reset => hyperram_reset,
+
+            d_awaddr  => x"00" & hr_awaddr,
+            d_awvalid => hr_awvalid,
+            d_awready => hr_awready,
+            d_wdata   => hr_wdata,
+            d_wstrb   => hr_wstrb,
+            d_wvalid  => hr_wvalid,
+            d_wready  => hr_wready,
+            d_bresp   => hr_bresp,
+            d_bvalid  => hr_bvalid,
+            d_bready  => hr_bready,
+            d_araddr  => x"00" & hr_araddr,
+            d_arvalid => hr_arvalid,
+            d_arready => hr_arready,
+            d_rdata   => hr_rdata,
+            d_rresp   => hr_rresp,
+            d_rvalid  => hr_rvalid,
+            d_rready  => hr_rready,
+
+            i_awaddr  => (others => '0'),
+            i_awvalid => '0',
+            i_awready => open,
+            i_wdata   => (others => '0'),
+            i_wstrb   => (others => '0'),
+            i_wvalid  => '0',
+            i_wready  => open,
+            i_bresp   => open,
+            i_bvalid  => open,
+            i_bready  => '1',
+            i_araddr  => (others => '0'),
+            i_arvalid => '0',
+            i_arready => open,
+            i_rdata   => open,
+            i_rresp   => open,
+            i_rvalid  => open,
+            i_rready  => '1',
+
+            arw_valid => arw_valid,
+            arw_ready => arw_ready,
+            arw_addr  => arw_addr,
+            arw_id    => arw_id,
+            arw_len   => arw_len,
+            arw_size  => arw_size,
+            arw_burst => arw_burst,
+            arw_write => arw_write,
+            w_valid   => w_valid,
+            w_ready   => w_ready,
+            w_data    => w_data,
+            w_strb    => w_strb,
+            w_last    => w_last,
+            b_valid   => b_valid,
+            b_ready   => b_ready,
+            b_id      => b_id,
+            r_valid   => r_valid,
+            r_ready   => r_ready,
+            r_data    => r_data,
+            r_id      => r_id,
+            r_resp    => r_resp,
+            r_last    => r_last
         );
 
     sync : process(clk_clk)
@@ -295,6 +394,29 @@ begin
         port map (
             clk_in_clk       => clk_clk,
             reset_in_reset_n => reset_reset_n,
+
+            hr_clk_in_clk       => rpll_clk0,
+            hr_reset_in_reset_n => rpll_locked,
+            hr_axi_awaddr  => hr_awaddr,
+            hr_axi_awprot  => open,
+            hr_axi_awvalid => hr_awvalid,
+            hr_axi_awready => hr_awready,
+            hr_axi_wdata   => hr_wdata,
+            hr_axi_wstrb   => hr_wstrb,
+            hr_axi_wvalid  => hr_wvalid,
+            hr_axi_wready  => hr_wready,
+            hr_axi_bresp   => hr_bresp,
+            hr_axi_bvalid  => hr_bvalid,
+            hr_axi_bready  => hr_bready,
+            hr_axi_araddr  => hr_araddr,
+            hr_axi_arprot  => open,
+            hr_axi_arvalid => hr_arvalid,
+            hr_axi_arready => hr_arready,
+            hr_axi_rdata   => hr_rdata,
+            hr_axi_rresp   => hr_rresp,
+            hr_axi_rvalid  => hr_rvalid,
+            hr_axi_rready  => hr_rready,
+
             hr_status_export   => status_sync_1,
             hr_debug_lo_export => debug_lo_sync_1,
             hr_debug_hi_export => debug_hi_sync_1,

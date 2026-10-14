@@ -73,6 +73,28 @@ add_instance pio_hr_timeouts altera_avalon_pio
 set_instance_parameter_value pio_hr_timeouts direction Input
 set_instance_parameter_value pio_hr_timeouts width 32
 
+# ---------------------------------------------------------------- HyperRAM memory window
+# A 16 MB AXI4-Lite window onto the HyperRAM, exported (m0) to
+# niosv_zephyr_top.vhd, where hyperram_axi4lite_bridge adapts it to
+# hyperram_axi's native port. The bridge runs on the HyperRAM core's own
+# 100 MHz clock (hr_clk_in, rpll0 outclk0) and reset (hr_reset_in, the PLL
+# not locked) - Platform Designer inserts the 25 -> 100 MHz clock crossing
+# between cpu0.data_manager and it. hyperram_axi holds arw_ready low until
+# calibration is done, so software checks hr_status before touching it.
+add_instance cb_hr altera_clock_bridge
+set_instance_parameter_value cb_hr EXPLICIT_CLOCK_RATE 100000000.0
+
+add_instance rb_hr altera_reset_bridge
+set_instance_parameter_value rb_hr ACTIVE_LOW_RESET 1
+add_connection cb_hr.out_clk rb_hr.clk
+
+add_instance hr_axi altera_axi_bridge
+set_instance_parameter_value hr_axi AXI_VERSION AXI4-Lite
+set_instance_parameter_value hr_axi DATA_WIDTH  32
+set_instance_parameter_value hr_axi ADDR_WIDTH  24
+add_connection cb_hr.out_clk   hr_axi.clk
+add_connection rb_hr.out_reset hr_axi.clk_reset
+
 # ---------------------------------------------------------------- HyperRAM PLL + reconfig
 # rpll0 (the HyperRAM clock PLL) and the emif_io96b_cal bridge it needs
 # for dynamic phase-shift reconfiguration both live OUTSIDE this system
@@ -128,6 +150,9 @@ set_connection_parameter_value cpu0.data_manager/pio_hr_debug_hi.s1 baseAddress 
 add_connection cpu0.data_manager pio_hr_timeouts.s1
 set_connection_parameter_value cpu0.data_manager/pio_hr_timeouts.s1 baseAddress 0x000A0030
 
+add_connection cpu0.data_manager hr_axi.s0
+set_connection_parameter_value cpu0.data_manager/hr_axi.s0 baseAddress 0x01000000
+
 # ---------------------------------------------------------------- debug module
 # Intel's own AXC3000 NIOSV_lab reference (ArrowElectronics/altera_workshops)
 # wires dm_agent from BOTH masters at 0x40000 - we'd left it unconnected,
@@ -161,5 +186,12 @@ add_interface hr_debug_hi conduit end
 set_interface_property hr_debug_hi EXPORT_OF pio_hr_debug_hi.external_connection
 add_interface hr_timeouts conduit end
 set_interface_property hr_timeouts EXPORT_OF pio_hr_timeouts.external_connection
+
+add_interface hr_clk_in clock sink
+set_interface_property hr_clk_in EXPORT_OF cb_hr.in_clk
+add_interface hr_reset_in reset sink
+set_interface_property hr_reset_in EXPORT_OF rb_hr.in_reset
+add_interface hr_axi axi4lite start
+set_interface_property hr_axi EXPORT_OF hr_axi.m0
 
 save_system {niosv_zephyr_sys.qsys}

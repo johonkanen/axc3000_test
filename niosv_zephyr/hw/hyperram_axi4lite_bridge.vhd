@@ -28,10 +28,11 @@
 --      for Nios V/g's non-pipelined AXI4-Lite masters, not asserted here
 --      in hardware.
 --
--- Untested on real HyperRAM/hardware yet - see sim/hyperram_axi4lite_bridge_tb.vhd
--- for what is verified (the arbitration/width-adaptation logic above, against
--- a simple behavioural mock of the native port, not the real hyperram_axi -
--- that part is already validated by the submodule's own testbench).
+-- Hardware-tested on the data side only (niosv_zephyr_top.vhd uses the d_*
+-- port for the HyperRAM data window, i_* tied off): apps/hyperram_memtest
+-- passes on the AXC3000. sim/hyperram_axi4lite_bridge_tb.vhd covers the
+-- arbitration between the two ports against a behavioural mock of the
+-- native port.
 library ieee;
     use ieee.std_logic_1164.all;
 
