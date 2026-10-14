@@ -3,12 +3,9 @@
  * its version) in the top 256 bytes of the on-chip RAM, which neither
  * touches otherwise: MCUboot writes it before it jumps (BOOT_SHARE_DATA),
  * the application's image management reads it (RETENTION_BOOTLOADER_INFO).
- * MCUboot and the application must both use this overlay.
+ * MCUboot and the application must both use this overlay; sram0 must end
+ * at 0x3FF00 in both (mcuboot.overlay, niosv_g_hyperram_xip.overlay).
  */
-
-&sram0 {
-	reg = <0x0 0x3ff00>;
-};
 
 / {
 	sram@3ff00 {

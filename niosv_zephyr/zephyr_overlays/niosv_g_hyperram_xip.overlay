@@ -16,6 +16,16 @@
  * point instead.
  */
 
+/* The application's on-chip RAM (.data, .bss, stacks): from 0x100, not 0 -
+ * the first .data object would sit at the NULL address, and the kernel
+ * takes a list node at 0 for "not linked" (seen: a k_work_delayable at 0
+ * never fired, so mcumgr's os reset did nothing). Up to 0x3FF00, where
+ * niosv_g_bootinfo.overlay's boot information starts.
+ */
+&sram0 {
+	reg = <0x100 0x3fe00>;
+};
+
 / {
 	chosen {
 		zephyr,flash = &hyperram_code;

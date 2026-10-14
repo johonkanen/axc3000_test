@@ -5,6 +5,13 @@
  * recovery (mcumgr / SMP) on the 4.8 MBaud FTDI UART.
  */
 
+/* the on-chip RAM below the boot information (niosv_g_bootinfo.overlay);
+ * from 0 - MCUboot's reset vector is there
+ */
+&sram0 {
+	reg = <0x0 0x3ff00>;
+};
+
 / {
 	chosen {
 		zephyr,flash-controller = &qspi;

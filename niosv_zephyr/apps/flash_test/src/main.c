@@ -89,6 +89,13 @@ int main(void)
 
 	printk("read 1 MB in %lld ms\n", t1 - t0);
 
+	/* erase speed: 1 MB in the free area (niosv_g_flash_layout: 0x1800000) */
+	t0 = k_uptime_get();
+	int er = flash_erase(flash, 0x1800000, 0x100000);
+	t1 = k_uptime_get();
+
+	printk("erase 1 MB at 0x1800000: %d, %lld ms\n", er, t1 - t0);
+
 	off_t test = size - TEST_SIZE;
 
 	if (!all_erased(test, TEST_SIZE)) {
