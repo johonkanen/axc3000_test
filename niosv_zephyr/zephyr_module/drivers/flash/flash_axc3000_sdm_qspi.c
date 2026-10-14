@@ -51,8 +51,10 @@ LOG_MODULE_REGISTER(flash_axc3000_sdm_qspi, CONFIG_FLASH_LOG_LEVEL);
 #define QSPI_ERASE           0x38
 #define QSPI_WRITE           0x39
 #define QSPI_READ            0x3a
+#define RSU_GET_SPT          0x5a
 #define RSU_STATUS           0x5b
 #define RSU_IMAGE_UPDATE     0x5c
+#define RSU_NOTIFY           0x5d
 
 #define MAX_WORDS     1024       /* per QSPI_READ / QSPI_WRITE */
 #define PAGE_SIZE     4096       /* smallest erase */
@@ -381,8 +383,10 @@ static DEVICE_API(flash, sdm_qspi_api) = {
 #endif
 };
 
-/* RSU through the same mailbox (axc3000/sdm_rsu.h) */
-int axc3000_sdm_rsu_status(uint32_t status[9])
+/* RSU through the same mailbox (axc3000/sdm_rsu.h): the QSPI access is
+ * closed first - the SDM needs the flash; the next flash call reopens it
+ */
+static int rsu_cmd(uint32_t cmd, const uint32_t *args, int args_n, uint32_t *resp, int resp_n)
 {
 	const struct device *dev = DEVICE_DT_INST_GET(0);
 	struct sdm_qspi_data *data = dev->data;
@@ -393,26 +397,31 @@ int axc3000_sdm_rsu_status(uint32_t status[9])
 		(void)mbox_cmd(dev, QSPI_CLOSE, NULL, 0, NULL, 0, NULL, 0);
 		data->open = false;
 	}
-	ret = mbox_cmd(dev, RSU_STATUS, NULL, 0, NULL, 0, status, 9);
+	ret = mbox_cmd(dev, cmd, args, args_n, NULL, 0, resp, resp_n);
 	k_mutex_unlock(&data->lock);
 	return ret;
 }
 
+int axc3000_sdm_rsu_status(uint32_t status[9])
+{
+	return rsu_cmd(RSU_STATUS, NULL, 0, status, 9);
+}
+
+int axc3000_sdm_rsu_get_spt(uint32_t spt[4])
+{
+	return rsu_cmd(RSU_GET_SPT, NULL, 0, spt, 4);
+}
+
+int axc3000_sdm_rsu_notify(uint32_t value)
+{
+	return rsu_cmd(RSU_NOTIFY, &value, 1, NULL, 0);
+}
+
 int axc3000_sdm_rsu_image_update(uint64_t flash_address)
 {
-	const struct device *dev = DEVICE_DT_INST_GET(0);
-	struct sdm_qspi_data *data = dev->data;
 	uint32_t args[2] = {(uint32_t)flash_address, (uint32_t)(flash_address >> 32)};
-	int ret;
 
-	k_mutex_lock(&data->lock, K_FOREVER);
-	if (data->open) {
-		(void)mbox_cmd(dev, QSPI_CLOSE, NULL, 0, NULL, 0, NULL, 0);
-		data->open = false;
-	}
-	ret = mbox_cmd(dev, RSU_IMAGE_UPDATE, args, 2, NULL, 0, NULL, 0);
-	k_mutex_unlock(&data->lock);
-	return ret;
+	return rsu_cmd(RSU_IMAGE_UPDATE, args, 2, NULL, 0);
 }
 
 #if defined(CONFIG_AXC3000_SDM_REBOOT)

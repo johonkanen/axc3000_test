@@ -10,10 +10,18 @@
 #include <stdint.h>
 
 /* RSU_STATUS: 9 words - [0..1] the running image's flash address, [2..3]
- * the failing image's address (0 if none), [4] error code, [5] error
- * location, [6] version, [7] error details, [8] retry counter
+ * the failing image's address (0 if none), [4] state (error code), [5]
+ * version, [6] error location, [7] error details, [8] retry counter
  */
 int axc3000_sdm_rsu_status(uint32_t status[9]);
+
+/* RSU_GET_SPT: [0..1] SPT0's flash address, [2..3] SPT1's - high word first
+ * (unlike RSU_STATUS's addresses, low word first)
+ */
+int axc3000_sdm_rsu_get_spt(uint32_t spt[4]);
+
+/* RSU_NOTIFY: a value / flags for the SDM (librsu's rsu_notify()) */
+int axc3000_sdm_rsu_notify(uint32_t value);
 
 /* RSU_IMAGE_UPDATE: reconfigure the device from the image at flash_address
  * (returns only if the SDM refuses)

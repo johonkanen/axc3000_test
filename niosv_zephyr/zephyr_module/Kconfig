@@ -56,3 +56,24 @@ config AXC3000_SDM_REBOOT
 	  sys_reboot() asks the SDM to reconfigure the device from the
 	  bitstream image that is running (RSU), which reloads MCUboot into the
 	  on-chip RAM - the application overwrites it there.
+
+config AXC3000_LIBRSU
+	bool "Intel's libRSU (Remote System Update) on the QSPI flash"
+	depends on FLASH_AXC3000_SDM_QSPI
+	select CRC
+	help
+	  Intel's open-source libRSU (lib/librsu, BSD-2-Clause): program FPGA
+	  application images into the RSU flash slots (P1, P2), make one the
+	  highest priority, read the RSU status. <librsu.h>; librsu_init(NULL).
+	  It uses malloc: give it a heap (COMMON_LIBC_MALLOC_ARENA_SIZE).
+
+config AXC3000_RSU_MGMT
+	bool "FPGA bitstream updates over mcumgr (command group 64)"
+	depends on AXC3000_LIBRSU && MCUMGR && AXC3000_HYPERRAM
+	help
+	  Upload an RSU application image (hw/flash/make_flash_images.sh's
+	  application.rpd) over SMP into a HyperRAM buffer, program it into an
+	  RSU slot with libRSU and make it the highest priority
+	  (mcuboot/update_bitstream.py). Needs
+	  MCUMGR_TRANSPORT_WORKQUEUE_STACK_SIZE >= 12288 (libRSU's image
+	  blocks live on that stack).
