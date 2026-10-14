@@ -1,28 +1,29 @@
--- hyperram_pins - DDIO wrapper between hyperram_axi's half-rate (hi/lo)
--- fpga_out/fpga_in records and the real single-ended AXC3000 HyperRAM
--- pins. Plain inferred DDR registers (two opposite-edge flip-flops + a
--- clock-level mux), not a vendor DDIO primitive - the "rising_edge/
--- falling_edge pair, muxed by the clock level" shape is the standard
--- template Quartus's fitter packs into the IOE's dedicated DDIO hardware,
--- and it sidesteps needing any particular megafunction (relevant after
--- hitting a real bug in altera_iopll's dynamic-phase-shift ports on this
--- Quartus/device combination - see niosv_zephyr/README.md).
+-- hyperram_pins - the AXC3000 HyperRAM pins, their registers in the I/O
+-- cells through the GPIO IP (ip/hr_gpio/), between hyperram_core's half-
+-- rate (hi/lo) fpga_out/fpga_in records and the single-ended pins.
 --
--- Clock domains, matching hVHDL_memory_library's hyperram_pkg.vhd header:
---   clock_0  (0deg)   - hyperram_axi's own clock; also cs_n/reset_n (SDR)
---                       and dq_*/rwds_* OUTPUT DDIO (DDR).
---   clock_ck (270deg) - CK pin's own DDIO ("the inverted 90 degree clock").
---   clock_rd           - read-capture clock for the INPUT DDIO registers.
---                       Fixed phase, not dynamically calibrated (no known-
---                       working dynamic phase shift on this device/
---                       toolchain yet) - a first guess, expect to sweep
---                       it empirically against real hardware.
+-- An earlier version inferred the DDR registers by hand (rising/falling-edge
+-- flops, muxed by the clock level). Quartus never packed those into the I/O
+-- cells: the fit report showed Input/Output/Output Enable Register = "no" on
+-- every hr_* pin, with the clock driving a fabric mux. The GPIO IP's DDIO is
+-- the I/O cell's own.
 --
--- Input capture is two stages: DDIO registers clocked by clock_rd, then a
--- single re-register clocked by clock_0 one cycle later to cross into
--- hyperram_axi's own domain - both clocks are the same frequency at a
--- fixed, known phase relationship, so this is a plain synchronous
--- crossing, not an async FIFO/handshake.
+-- Clock domains, matching hVHDL_memory_library's hyperram_pkg.vhd:
+--   clock_0  (0 deg)   hyperram_core's clock; DQ/RWDS output DDIO and output
+--                      enables; CS#/RESET# (fabric registers - see below)
+--   clock_ck (270 deg) the CK pin's output DDIO ("the inverted 90 degree
+--                      clock")
+--   clock_rd           DQ/RWDS input DDIO - the read clock, its phase swept
+--                      at runtime by hyperram_core's calibration
+--
+-- Input capture is two stages: the DDIO input registers on clock_rd, then a
+-- re-register on clock_0 a cycle later - both clocks are one frequency at a
+-- known phase, a plain synchronous transfer.
+--
+-- GPIO IP DDIO half order (checked by simulating the generated IP): the
+-- LOWER half of din is driven while the clock is high (the first half of
+-- the cycle) - so *_hi goes in the lower half; on input the lower half of
+-- dout is the value captured at the rising edge.
 library ieee;
     use ieee.std_logic_1164.all;
 
@@ -47,81 +48,78 @@ end entity hyperram_pins;
 
 architecture rtl of hyperram_pins is
 
-    signal ck_hi_r, ck_lo_r : std_logic := '0';
+    -- bits 7:0 DQ, bit 8 RWDS; DDIO data: bits 8:0 the first half, 17:9 the second
+    component hr_dq_io is
+        port (
+            ck_in  : in    std_logic;
+            ck_out : in    std_logic;
+            dout   : out   std_logic_vector(17 downto 0);
+            din    : in    std_logic_vector(17 downto 0);
+            oe     : in    std_logic_vector(8 downto 0);
+            pad_io : inout std_logic_vector(8 downto 0)
+        );
+    end component hr_dq_io;
 
+    component hr_ck_io is
+        port (
+            ck      : in  std_logic;
+            din     : in  std_logic_vector(1 downto 0);
+            pad_out : out std_logic_vector(0 downto 0)
+        );
+    end component hr_ck_io;
+
+
+    signal dq_din   : std_logic_vector(17 downto 0);
+    signal dq_dout  : std_logic_vector(17 downto 0);
+    signal dq_oe    : std_logic_vector(8 downto 0);
+    signal ck_out   : std_logic_vector(0 downto 0);
     signal cs_n_r, reset_n_r : std_logic := '1';
-    signal dq_oe_r, rwds_oe_r : std_logic := '0';
-    signal dq_hi_r, dq_lo_r : std_logic_vector(7 downto 0) := (others => '0');
-    signal rwds_hi_r, rwds_lo_r : std_logic := '0';
-    signal dq_out, rwds_out : std_logic_vector(7 downto 0);
-    signal rwds_out_bit : std_logic;
-
-    signal dq_capture_hi, dq_capture_lo : std_logic_vector(7 downto 0) := (others => '0');
-    signal rwds_capture_hi, rwds_capture_lo : std_logic := '0';
 
 begin
 
-    -- CK pin DDIO (its own 270deg clock domain)
-    ck_out : process(clock_ck)
-    begin
-        if rising_edge(clock_ck) then
-            ck_hi_r <= fpga_out.ck_hi;
-        elsif falling_edge(clock_ck) then
-            ck_lo_r <= fpga_out.ck_lo;
-        end if;
-    end process;
-    hr_clk <= ck_hi_r when clock_ck = '1' else ck_lo_r;
+    dq_din <= fpga_out.rwds_lo & fpga_out.dq_lo & fpga_out.rwds_hi & fpga_out.dq_hi;
+    dq_oe  <= fpga_out.rwds_oe & (7 downto 0 => fpga_out.dq_oe);
 
-    -- cs_n/reset_n: single-rate, clock_0 domain
-    sdr_out : process(clock_0)
+    u_dq : component hr_dq_io
+        port map (
+            ck_in  => clock_rd,
+            ck_out => clock_0,
+            dout   => dq_dout,
+            din    => dq_din,
+            oe     => dq_oe,
+            pad_io(7 downto 0) => hr_dq,
+            pad_io(8)          => hr_rwds
+        );
+
+    u_ck : component hr_ck_io
+        port map (
+            ck      => clock_ck,
+            din     => fpga_out.ck_lo & fpga_out.ck_hi,
+            pad_out => ck_out
+        );
+    hr_clk <= ck_out(0);
+
+    -- CS#/RESET#: fabric registers on clock_0, not I/O-cell ones - they share
+    -- an I/O lane with CK, whose DDIO is on clock_ck, and one lane's output
+    -- registers take only one clock
+    ctl_out : process(clock_0)
     begin
         if rising_edge(clock_0) then
             cs_n_r    <= fpga_out.cs_n;
             reset_n_r <= fpga_out.reset_n;
-            dq_oe_r   <= fpga_out.dq_oe;
-            rwds_oe_r <= fpga_out.rwds_oe;
         end if;
     end process;
     hr_csn    <= cs_n_r;
     hr_resetn <= reset_n_r;
 
-    -- dq/rwds OUTPUT DDIO, clock_0 domain
-    ddr_out : process(clock_0)
-    begin
-        if rising_edge(clock_0) then
-            dq_hi_r   <= fpga_out.dq_hi;
-            rwds_hi_r <= fpga_out.rwds_hi;
-        elsif falling_edge(clock_0) then
-            dq_lo_r   <= fpga_out.dq_lo;
-            rwds_lo_r <= fpga_out.rwds_lo;
-        end if;
-    end process;
-    dq_out       <= dq_hi_r   when clock_0 = '1' else dq_lo_r;
-    rwds_out_bit <= rwds_hi_r when clock_0 = '1' else rwds_lo_r;
-
-    hr_dq   <= dq_out when dq_oe_r = '1' else (others => 'Z');
-    hr_rwds <= rwds_out_bit when rwds_oe_r = '1' else 'Z';
-
-    -- dq/rwds INPUT DDIO, clock_rd domain (stage 1)
-    ddr_in : process(clock_rd)
-    begin
-        if rising_edge(clock_rd) then
-            dq_capture_hi   <= hr_dq;
-            rwds_capture_hi <= hr_rwds;
-        elsif falling_edge(clock_rd) then
-            dq_capture_lo   <= hr_dq;
-            rwds_capture_lo <= hr_rwds;
-        end if;
-    end process;
-
-    -- re-register into hyperram_axi's own (clock_0) domain, one cycle later (stage 2)
+    -- re-register into hyperram_core's own (clock_0) domain, one cycle later
     cross_to_clock_0 : process(clock_0)
     begin
         if rising_edge(clock_0) then
-            fpga_in.dq_hi   <= dq_capture_hi;
-            fpga_in.dq_lo   <= dq_capture_lo;
-            fpga_in.rwds_hi <= rwds_capture_hi;
-            fpga_in.rwds_lo <= rwds_capture_lo;
+            fpga_in.dq_hi   <= dq_dout(7 downto 0);
+            fpga_in.rwds_hi <= dq_dout(8);
+            fpga_in.dq_lo   <= dq_dout(16 downto 9);
+            fpga_in.rwds_lo <= dq_dout(17);
         end if;
     end process;
 

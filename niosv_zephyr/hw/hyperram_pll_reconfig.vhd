@@ -58,26 +58,35 @@
 -- post-reconfiguration PLL reset would be actively wrong, not just
 -- unnecessary.
 --
--- Two targets, both infrequent/one-shot, not performance-critical:
---   counter 0 (outclk0, the CK pin's own clock) - set once to a fixed
---   phase shortly after reset.
---   counter 1 (outclk1, the HyperRAM read-capture clock) - rewritten
---   whenever hyperram_axi's calibration logic requests a new phase (its
---   phase_shift record - see hyperram_pkg.vhd). shift_select's one-hot
---   target decoding is skipped: there is only one dynamically-swept
---   output in this design, so any shift_enable pulse means "apply shift
---   to counter 1".
+-- One target: counter 1 (outclk1, the HyperRAM read-capture clock),
+-- rewritten whenever hyperram_core's calibration requests a new phase (its
+-- phase_shift record - see hyperram_pkg.vhd). shift_select's one-hot target
+-- decoding is skipped: outclk1 is the only dynamically-swept output, so
+-- any shift_enable pulse means "apply shift to counter 1". outclk0 (core
+-- clock) and outclk2 (CK, static 270 deg) are never written - writing a
+-- counter only moves that counter's output.
+--
+-- Clock domains: this runs on the free-running 25 MHz board clock (also
+-- emif_cal's AXI4-Lite clock); hyperram_core drives phase_shift from the
+-- 100 MHz HyperRAM clock. dps_shift is set four core cycles before
+-- dps_shift_enable rises and held until the next change; shift_enable is
+-- high for ten core cycles (100 ns, at least two of our cycles). So:
+-- shift goes through two flops, shift_enable through three (its edge is
+-- seen a cycle after the shift value has settled here), and a request
+-- that arrives while a write is still in flight is latched, not dropped -
+-- the newest one wins.
+--
+-- Held in reset until the PLL reports lock, so nothing is written before
+-- the PLL (and its IOSSM) is up.
 library ieee;
     use ieee.std_logic_1164.all;
     use ieee.numeric_std.all;
 
 entity hyperram_pll_reconfig is
-    generic(
-        g_ck_fixed_phase : natural range 0 to 7 := 6   -- 270 deg = 6 * 45 deg
-    );
     port(
-        clock : in std_logic;
-        reset : in std_logic;
+        clock      : in std_logic;
+        reset      : in std_logic;
+        pll_locked : in std_logic;
 
         axil_awaddr  : out std_logic_vector(26 downto 0);
         axil_awvalid : out std_logic;
@@ -105,19 +114,13 @@ architecture rtl of hyperram_pll_reconfig is
     -- our only PLL), awaddr[7:0] = register offset below.
     constant c_axil_fixed_bits : unsigned(26 downto 0) := to_unsigned(16#A00000#, 27);
     constant c_reg_enable_addr : unsigned(26 downto 0) := c_axil_fixed_bits + 16#10#;
-    constant c_counter0_addr   : unsigned(26 downto 0) := c_axil_fixed_bits + 16#5C#;
     constant c_counter1_addr   : unsigned(26 downto 0) := c_axil_fixed_bits + 16#5C# + 4;
 
     -- bits [21:19] of the counter's 32-bit word ("Phase Mux Preset")
     constant c_phase_mask : unsigned(31 downto 0) := to_unsigned(16#00380000#, 32);
 
-    type step_t is (
-        s_enable_reconfig,
-        s_read_c0, s_write_c0,
-        s_wait_dps,
-        s_read_c1, s_write_c1
-    );
-    signal step : step_t := s_enable_reconfig;
+    type step_t is (s_start, s_enable_reconfig, s_wait_dps, s_read_c1, s_write_c1);
+    signal step : step_t := s_start;
 
     type axil_phase_t is (axil_req, axil_resp);
     signal axil_phase    : axil_phase_t := axil_req;
@@ -126,11 +129,17 @@ architecture rtl of hyperram_pll_reconfig is
     signal aw_v, w_v, ar_v, b_r, r_r : std_logic := '0';
 
     signal bus_addr      : unsigned(26 downto 0) := c_reg_enable_addr;
-    signal bus_wdata      : unsigned(31 downto 0) := to_unsigned(1, 32);
-    signal bus_rdata      : unsigned(31 downto 0) := (others => '0');
+    signal bus_wdata     : unsigned(31 downto 0) := to_unsigned(1, 32);
     signal pending_phase : unsigned(2 downto 0) := (others => '0');
 
-    signal dps_shift_enable_prev : std_logic := '0';
+    -- clock-domain crossing from the 100 MHz HyperRAM clock
+    signal lock_sync   : std_logic_vector(1 downto 0) := (others => '0');
+    signal enable_sync : std_logic_vector(3 downto 0) := (others => '0');
+    signal shift_sync0, shift_sync1 : std_logic_vector(2 downto 0) := (others => '0');
+
+    -- the newest request not yet started
+    signal request_pending : boolean := false;
+    signal request_phase   : unsigned(2 downto 0) := (others => '0');
 
 begin
 
@@ -147,18 +156,33 @@ begin
     begin
         if rising_edge(clock) then
 
-            dps_shift_enable_prev <= dps_shift_enable;
+            lock_sync   <= lock_sync(0) & pll_locked;
+            enable_sync <= enable_sync(2 downto 0) & dps_shift_enable;
+            shift_sync0 <= dps_shift;
+            shift_sync1 <= shift_sync0;
 
-            if step = s_wait_dps then
+            if step = s_start then
 
-                if dps_shift_enable = '1' and dps_shift_enable_prev = '0' then
-                    pending_phase <= unsigned(dps_shift);
-                    bus_addr      <= c_counter1_addr;
-                    bus_is_write  <= false;
-                    axil_phase    <= axil_req;
-                    ar_v          <= '1';
-                    r_r           <= '1';
-                    step          <= s_read_c1;
+                -- the enable-registers write, issued only once out of reset
+                bus_addr     <= c_reg_enable_addr;
+                bus_wdata    <= to_unsigned(1, 32);
+                bus_is_write <= true;
+                aw_v         <= '1';
+                w_v          <= '1';
+                axil_phase   <= axil_req;
+                step         <= s_enable_reconfig;
+
+            elsif step = s_wait_dps then
+
+                if request_pending then
+                    request_pending <= false;
+                    pending_phase   <= request_phase;
+                    bus_addr        <= c_counter1_addr;
+                    bus_is_write    <= false;
+                    axil_phase      <= axil_req;
+                    ar_v            <= '1';
+                    r_r             <= '1';
+                    step            <= s_read_c1;
                 end if;
 
             else
@@ -190,60 +214,24 @@ begin
                         end if;
 
                     -- response phase: wait for BVALID (write) or RVALID
-                    -- (read), then dispatch the next step.
+                    -- (read), then the next step.
                     when axil_resp =>
                         if bus_is_write then
                             if axil_bvalid = '1' then
-                                b_r <= '0';
-
-                                case step is
-                                    when s_write_c0 =>
-                                        step <= s_wait_dps; -- no bus op in this state - see above
-
-                                    when s_write_c1 =>
-                                        step <= s_wait_dps;
-
-                                    when s_enable_reconfig =>
-                                        bus_addr     <= c_counter0_addr;
-                                        bus_is_write <= false;
-                                        ar_v         <= '1';
-                                        r_r          <= '1';
-                                        axil_phase   <= axil_req;
-                                        step         <= s_read_c0;
-
-                                    when others =>
-                                        null; -- unreachable: s_read_c0/s_read_c1/s_wait_dps never do a write
-
-                                end case;
+                                b_r  <= '0';
+                                step <= s_wait_dps;     -- after the enable write and after each C1 write
                             end if;
                         else
                             if axil_rvalid = '1' then
-                                r_r       <= '0';
-                                bus_rdata <= unsigned(axil_rdata);
-
-                                case step is
-                                    when s_read_c0 =>
-                                        bus_wdata <= (unsigned(axil_rdata) and not c_phase_mask) or
-                                                     (shift_left(resize(to_unsigned(g_ck_fixed_phase, 3), 32), 19) and c_phase_mask);
-                                        bus_is_write <= true;
-                                        aw_v         <= '1';
-                                        w_v          <= '1';
-                                        axil_phase   <= axil_req;
-                                        step         <= s_write_c0;
-
-                                    when s_read_c1 =>
-                                        bus_wdata <= (unsigned(axil_rdata) and not c_phase_mask) or
-                                                     (shift_left(resize(pending_phase, 32), 19) and c_phase_mask);
-                                        bus_is_write <= true;
-                                        aw_v         <= '1';
-                                        w_v          <= '1';
-                                        axil_phase   <= axil_req;
-                                        step         <= s_write_c1;
-
-                                    when others =>
-                                        null; -- unreachable: s_enable_reconfig/s_write_c0/s_write_c1/s_wait_dps never do a read
-
-                                end case;
+                                r_r <= '0';
+                                -- read-modify-write: only the phase field changes
+                                bus_wdata <= (unsigned(axil_rdata) and not c_phase_mask) or
+                                             (shift_left(resize(pending_phase, 32), 19) and c_phase_mask);
+                                bus_is_write <= true;
+                                aw_v         <= '1';
+                                w_v          <= '1';
+                                axil_phase   <= axil_req;
+                                step         <= s_write_c1;
                             end if;
                         end if;
 
@@ -251,17 +239,24 @@ begin
 
             end if;
 
-            if reset = '1' then
-                step         <= s_enable_reconfig;
-                axil_phase   <= axil_req;
-                bus_is_write <= true;
-                bus_addr     <= c_reg_enable_addr;
-                bus_wdata    <= to_unsigned(1, 32);
-                aw_v         <= '1';
-                w_v          <= '1';
-                ar_v         <= '0';
-                b_r          <= '0';
-                r_r          <= '0';
+            -- a new request (after the start above, so one arriving in the
+            -- same clock is not lost)
+            if enable_sync(2) = '1' and enable_sync(3) = '0' then
+                request_pending <= true;
+                request_phase   <= unsigned(shift_sync1);
+            end if;
+
+            -- nothing presented on the bus while held: the bridge's BVALID is
+            -- a one-clock pulse, an accepted write's response would be lost
+            if reset = '1' or lock_sync(1) = '0' then
+                step            <= s_start;
+                axil_phase      <= axil_req;
+                aw_v            <= '0';
+                w_v             <= '0';
+                ar_v            <= '0';
+                b_r             <= '0';
+                r_r             <= '0';
+                request_pending <= false;
             end if;
         end if;
     end process;

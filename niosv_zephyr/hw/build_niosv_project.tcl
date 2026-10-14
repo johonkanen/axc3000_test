@@ -77,6 +77,7 @@ set MEMLIB $this_file_path/../../source/hVHDL_memory_library
 set_global_assignment -name VHDL_FILE $MEMLIB/vhdl2008/dp_ram_w_configurable_records.vhd
 set_global_assignment -name VHDL_FILE $MEMLIB/vhdl2008/arch_rtl_dp_ram_w_configurable_records.vhd
 set_global_assignment -name VHDL_FILE $MEMLIB/hyperram/hyperram_pkg.vhd
+set_global_assignment -name VHDL_FILE $MEMLIB/hyperram/hyperram_core.vhd
 set_global_assignment -name VHDL_FILE $MEMLIB/hyperram/hyperram_axi.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/hyperram_pins.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/hyperram_pll_reconfig.vhd
@@ -117,6 +118,11 @@ foreach inst {cb cpu0 ram0 rb rr0 uart0 pio_hr_status pio_hr_debug_lo pio_hr_deb
 # niosv_zephyr_sys's own instances above.
 set_global_assignment -name IP_FILE $this_file_path/ip/rpll0/rpll0.ip
 
+# the HyperRAM pins' I/O-cell registers (GPIO IP) - see ip/hr_gpio/build_hr_gpio.sh
+foreach g {hr_dq_io hr_ck_io} {
+    set_global_assignment -name IP_FILE $this_file_path/ip/hr_gpio/$g.ip
+}
+
 set_global_assignment -name QIP_FILE $this_file_path/ip/emif_cal/emif_cal/emif_cal.qip
 set emif_cal_cal0_matches [glob -nocomplain $this_file_path/ip/emif_cal/ip/emif_cal/emif_cal_cal0*/emif_cal_cal0*.qip]
 if {[llength $emif_cal_cal0_matches] != 1} {
@@ -139,9 +145,14 @@ set_instance_assignment -name IO_STANDARD "1.3-V LVCMOS" -to reset_reset_n -enti
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to reset_reset_n -entity niosv_zephyr_top
 
 # AXC3000 onboard HyperRAM - board-verified pinout from the official xSPI
-# reference design; see docs/hyperram_pinout.md for the source and the
-# INPUT_DELAY_CHAIN note (its one hardware-proven timing choice, reused
-# here since this design has no working dynamic calibration yet).
+# reference design; see docs/hyperram_pinout.md for the source.
+#
+# The reference design's INPUT_DELAY_CHAIN 24 on HR_DQ* is deliberately NOT
+# applied: it was tuned for a different controller (Synaptic Labs' xSPI
+# IP), and here DQ and RWDS are captured by the same read clock, so a delay
+# on DQ alone only adds DQ-to-RWDS skew. It also kept the DQ input DDIO out
+# of the I/O cells (a delay chain needs the GPIO IP's DDIO-with-delay mode).
+# The read clock's calibrated phase covers the capture timing.
 set_location_assignment PIN_D7 -to hr_clk
 set_location_assignment PIN_D8 -to hr_csn
 set_location_assignment PIN_A6 -to hr_rwds
@@ -167,7 +178,6 @@ set_instance_assignment -name IO_STANDARD "1.3-V LVCMOS" -to hr_dq[4]
 set_instance_assignment -name IO_STANDARD "1.3-V LVCMOS" -to hr_dq[5]
 set_instance_assignment -name IO_STANDARD "1.3-V LVCMOS" -to hr_dq[6]
 set_instance_assignment -name IO_STANDARD "1.3-V LVCMOS" -to hr_dq[7]
-set_instance_assignment -name INPUT_DELAY_CHAIN 24 -to hr_dq*
 
 
 # --------------------------------------------------------------- commit

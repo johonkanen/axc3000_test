@@ -43,6 +43,7 @@ rm -rf niosv_zephyr_sys.qsys niosv_zephyr_sys ip/niosv_zephyr_sys/niosv_zephyr_s
        ip/emif_cal/emif_cal ip/emif_cal/ip/emif_cal/emif_cal_cal0/ \
        ip/emif_cal/ip/emif_cal/emif_cal_cal0_*/ ip/emif_cal/ip/emif_cal/emif_cal_cal0_[0-9]*.ip \
        ip/emif_cal/dni ip/emif_cal/qdb ip/emif_cal/db ip/emif_cal/incremental_db \
+       ip/hr_gpio/hr_dq_io ip/hr_gpio/hr_ck_io \
        output_files db incremental_db dni qdb *.qws *.qpf *.qsf
 
 step "qsys-script: build the Platform Designer system"
@@ -56,6 +57,11 @@ qsys-generate ip/rpll0/rpll0.ip --synthesis=VHDL --part=A3CY100BM16AE7S
 
 step "qsys-generate: emif_cal (AXI4-Lite bridge to rpll0's calibration bus)"
 qsys-generate ip/emif_cal/emif_cal.qsys --synthesis=VHDL --part=A3CY100BM16AE7S
+
+step "qsys-generate: the HyperRAM pins' GPIO IP (I/O-cell DDIO)"
+for g in hr_dq_io hr_ck_io; do
+    qsys-generate ip/hr_gpio/$g.ip --synthesis=VHDL --part=A3CY100BM16AE7S
+done
 
 step "quartus_sh: create/update the project"
 # NUM_PARALLEL_PROCESSORS (if set) is read and applied inside

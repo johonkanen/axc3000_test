@@ -31,6 +31,17 @@ declared standard, not a hardware voltage change).
 The reference design also sets `INPUT_DELAY_CHAIN 24` on all `HR_DQ*` pins
 (`set_instance_assignment -name INPUT_DELAY_CHAIN 24 -to HR_DQ* -entity
 axc3000_top`) - a tuned input delay, presumably for read-capture timing.
+`niosv_zephyr/hw` does **not** use it: that delay was tuned for the
+reference design's own controller, and `hyperram_core` captures DQ and RWDS
+with the same read clock, so a delay on DQ alone only adds DQ-to-RWDS skew.
+It also kept the DQ input DDIO out of the I/O cells (on Agilex 3 an input
+delay chain needs the GPIO IP's separate "DDIO with delay" mode).
+
+`HR_CSn`/`HR_HRESETn` (D8/F7) share an I/O lane with `HR_CLK` (D7). One
+lane's output registers take a single clock, so with CK's DDIO on the 270°
+clock, CS#/RESET# cannot also be I/O-cell registers on the 0° clock (the
+Fitter reports "cannot find routing connectivity" from the IOPLL); they are
+fabric registers instead.
 
 `CLK_25M_C` is pinned at `A7` in the same file - the same pin this repo
 already uses for `clk_clk`, confirming it's the same 25 MHz board

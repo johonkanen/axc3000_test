@@ -38,4 +38,9 @@ hr_bridge = VU.add_library("hyperram_bridge_lib")
 hr_bridge.add_source_files(ROOT / "niosv_zephyr/hw/hyperram_axi4lite_bridge.vhd")
 hr_bridge.add_source_files(ROOT / "niosv_zephyr/hw/sim/hyperram_axi4lite_bridge_tb.vhd")
 
+# HyperRAM read-clock phase shift over emif_cal's AXI4-Lite port (niosv_zephyr)
+pll_reconfig = VU.add_library("pll_reconfig_lib")
+pll_reconfig.add_source_files(ROOT / "niosv_zephyr/hw/hyperram_pll_reconfig.vhd")
+pll_reconfig.add_source_files(ROOT / "niosv_zephyr/hw/sim/hyperram_pll_reconfig_tb.vhd")
+
 VU.main()

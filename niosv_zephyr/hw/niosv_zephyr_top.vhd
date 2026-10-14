@@ -22,16 +22,17 @@
 -- already uses. A flat .ip (ip/rpll0/rpll0.ip, built from pll_100.ip -
 -- see build_rpll0.tcl), not a Platform Designer "system".
 --
--- outclk0 drives the CK pin's own DDIO domain (set once near boot) and
--- also feeds hyperram_axi's own clock domain plus the cs_n/dq_*/rwds_*
--- output DDIO (hyperram_pins.vhd) - left at its compile-time default
--- phase, never reconfigured. outclk1 is the HyperRAM read-capture clock
--- (swept by hyperram_axi's own calibration logic). Compile-time
--- phase-shift parameters (gui_phase_shift_deg<N>) accept a value but never
--- actually apply it on this Quartus/Agilex 3 combination (confirmed from
--- qsys-generate's own real output, not guessed) - runtime dynamic
--- reconfiguration, driven by hyperram_pll_reconfig.vhd, is the only way
--- to get a real nonzero phase here.
+-- Three 100 MHz outputs, all from the 2400 MHz VCO:
+--   outclk0 (C0)  0 deg    hyperram_core's clock, CS#/RESET# and DQ/RWDS
+--                          output registers - never reconfigured
+--   outclk1 (C1)  0 deg    the read clock (DQ/RWDS input DDIO), its phase
+--                          swept at runtime by the core's calibration
+--                          through hyperram_pll_reconfig.vhd
+--   outclk2 (C2)  270 deg  the CK pin's DDIO ("the inverted 90 degree
+--                          clock" the core expects) - a static, compile-time
+--                          phase (it does apply: the IP sets C2's Counter
+--                          Preset to 19, 7500 ps), never reconfigured
+-- Writing a counter's phase moves only that counter's output.
 --
 -- Reconfiguration path: rpll0's pll_calbus/pll_calbus_readdata ports go
 -- to emif_cal (ip/emif_cal/emif_cal.qsys, a wrapped qsys system around an
@@ -100,13 +101,14 @@ architecture rtl of niosv_zephyr_top is
             pll_calbus          : in  std_logic_vector(57 downto 0) := (others => 'X');
             pll_calbus_readdata : out std_logic_vector(31 downto 0);
             outclk_0            : out std_logic;
-            outclk_1            : out std_logic
+            outclk_1            : out std_logic;
+            outclk_2            : out std_logic
         );
     end component rpll0;
 
     signal rpll_rst     : std_logic;
     signal rpll_locked : std_logic;
-    signal rpll_clk0, rpll_clk1 : std_logic;
+    signal rpll_clk0, rpll_clk1, rpll_clk2 : std_logic;
     signal hyperram_reset : boolean;
 
     signal rpll_calbus          : std_logic_vector(57 downto 0);
@@ -158,6 +160,7 @@ begin
             locked              => rpll_locked,
             outclk_0            => rpll_clk0,
             outclk_1            => rpll_clk1,
+            outclk_2            => rpll_clk2,
 
             pll_calbus          => rpll_calbus,
             pll_calbus_readdata => rpll_calbus_readdata
@@ -194,8 +197,9 @@ begin
 
     u_rpll_reconfig : entity work.hyperram_pll_reconfig
         port map (
-            clock => clk_clk,
-            reset => rpll_rst,
+            clock      => clk_clk,
+            reset      => rpll_rst,
+            pll_locked => rpll_locked,
 
             axil_awaddr  => axil_awaddr,
             axil_awvalid => axil_awvalid,
@@ -219,7 +223,7 @@ begin
     u_hyperram_pins : entity work.hyperram_pins
         port map (
             clock_0  => rpll_clk0,
-            clock_ck => rpll_clk0,
+            clock_ck => rpll_clk2,
             clock_rd => rpll_clk1,
             fpga_out => fpga_out,
             fpga_in  => fpga_in,

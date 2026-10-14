@@ -1,9 +1,14 @@
 # build_rpll0.tcl - how rpll0.ip was derived from the repo-root's own
 # proven, hardware-verified ip/pll_100/pll_100.ip (copied in as a starting
 # point, not hand-typed from scratch, same convention as
-# ip/hpll0/modify_upstream.tcl): add a second output clock and turn on
-# dynamic IOSSM reconfiguration. Already applied and committed - this file
-# is the reproducible record, not something build_all.sh re-runs.
+# ip/hpll0/modify_upstream.tcl): three 100 MHz outputs and dynamic IOSSM
+# reconfiguration. Already applied and committed - this file is the
+# reproducible record, not something build_all.sh re-runs.
+#
+#   outclk0 (C0)  0 deg      hyperram core clock, output DDIO - never reconfigured
+#   outclk1 (C1)  0 deg      read capture - phase swept at runtime by calibration
+#   outclk2 (C2)  270 deg    CK pin DDIO ("the inverted 90 degree clock" the
+#                            core expects) - static, never reconfigured
 #
 # Deliberately a FLAT .ip, not wrapped in its own Platform Designer
 # "system" - same convention pll_100.ip/hpll0.ip already use, and
@@ -35,7 +40,10 @@
 #
 package require qsys
 load_system rpll0.ip
-set_instance_parameter_value pll_100 gui_number_of_clocks 2
+set_instance_parameter_value pll_100 gui_number_of_clocks 3
 set_instance_parameter_value pll_100 gui_output_clock_frequency1 100.0
+set_instance_parameter_value pll_100 gui_output_clock_frequency2 100.0
+set_instance_parameter_value pll_100 gui_ps_units2 degrees
+set_instance_parameter_value pll_100 gui_phase_shift_deg2 270.0
 set_instance_parameter_value pll_100 gui_en_iossm_reconf true
 save_system rpll0.ip
