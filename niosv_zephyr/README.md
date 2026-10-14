@@ -11,7 +11,9 @@ so Linux is off the table on this core - see repo history / session notes).
 | `zephyr/` | west workspace (zephyrproject), pinned to **v4.4.2**. **Not committed** - see Setup. |
 | `.venv/` | Python 3.12 venv for west/Zephyr. **Not committed.** |
 | `hw/` | Platform Designer system + Quartus project/build scripts for the Nios V/g processor subsystem. Phases 1 & 2, **done** - Zephyr boots on real hardware. |
-| `zephyr_overlays/` | devicetree overlays applied at `west build` time - currently just the 25 MHz clock-frequency fix. |
+| `zephyr_overlays/` | devicetree overlays applied at `west build` time: the 25 MHz clock-frequency fix, and `niosv_g_hyperram.overlay` (the HyperRAM as a `zephyr,memory-region`). |
+| `zephyr_module/` | out-of-tree Zephyr module `axc3000`: `<axc3000/hyperram.h>` - waits for the HyperRAM calibration at boot, `HYPERRAM_SECTION` for static data, `hyperram_heap` (a `k_heap` on the rest). |
+| `apps/` | Zephyr apps: `hyperram_status` (calibration status), `hyperram_memtest` (raw 16 MB test), `hyperram_zephyr` (Zephyr using the HyperRAM via the module). |
 | `zephyr-revision.txt` | `west list` output - exact pinned commit of every module, for reproducing the workspace. |
 
 ## Phases
@@ -22,6 +24,7 @@ so Linux is off the table on this core - see repo history / session notes).
 - [ ] Phase 3 (stretch) - wire Nios V/g as a second Avalon-MM master into the existing `fpga_communications` register block so Zephyr can drive the FP32 FMA / PWM registers
 - [ ] Phase 4 (stretch) - swap the JTAG UART console for the board's real RS-232 pins (AG23/AG24), if a Zephyr driver exists for Intel's Avalon UART
 - [x] HyperRAM as a data window: the onboard 16 MB HyperRAM at `0x01000000` on Nios V/g's data bus (`hr_axi` AXI4-Lite bridge in `niosv_zephyr_sys`, 100 MHz HyperRAM clock domain, -> `hw/hyperram_axi4lite_bridge.vhd` -> `source/hVHDL_memory_library`'s `hyperram_axi`). `apps/hyperram_memtest` passes on hardware: data/address bus, byte/halfword strobes, full 16 MB pattern + inverted (~2.5 MB/s write, ~2.2 MB/s read, uncached single-word accesses through a 25 MHz CPU). Pins: `docs/hyperram_pinout.md`.
+- [x] Zephyr uses the HyperRAM: `zephyr_overlays/niosv_g_hyperram.overlay` + `zephyr_module/` (see Layout). `apps/hyperram_zephyr` passes on hardware: a 1 MB static buffer in the `HYPERRAM` section, 15 MB `hyperram_heap` alloc/free, memcpy on-chip RAM <-> HyperRAM, two preempting threads on HyperRAM blocks. An app opts in from its CMakeLists.txt (`EXTRA_DTC_OVERLAY_FILE`, `EXTRA_ZEPHYR_MODULES` - see `apps/hyperram_zephyr/CMakeLists.txt`) and needs `CONFIG_SYS_HEAP_AUTO=y` (the 256 KB on-chip RAM makes Zephyr default to small-only heaps, capped at 256 KB; the module fails the build otherwise). Build: `west build -b niosv_g -d build_hr_zephyr ../apps/hyperram_zephyr` from `zephyr/`.
 - [ ] Phase 5 (stretch) - execute Zephyr from the HyperRAM instead of on-chip RAM (needs the instruction-side port of `hyperram_axi4lite_bridge` and the caches re-enabled - HyperRAM's latency is much higher than on-chip M20K).
 
 ## Setup (Phase 0)

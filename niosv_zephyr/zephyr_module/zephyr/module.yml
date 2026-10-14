@@ -1,0 +1,4 @@
+name: axc3000
+build:
+  cmake: .
+  kconfig: Kconfig

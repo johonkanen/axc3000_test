@@ -1,0 +1,15 @@
+/*
+ * The AXC3000's onboard 16 MB HyperRAM, a data window at 0x01000000 on Nios
+ * V/g's data bus (hw/build_niosv_system.tcl's hr_axi). A 'zephyr,memory-region'
+ * node: the linker gets a HYPERRAM region and a NOLOAD section of the same
+ * name - place data there with HYPERRAM_SECTION (zephyr_module's
+ * <axc3000/hyperram.h>). Data only: the instruction bus does not reach it.
+ */
+
+/ {
+	hyperram: memory@1000000 {
+		compatible = "zephyr,memory-region";
+		reg = <0x01000000 0x01000000>;	/* 16 MB */
+		zephyr,memory-region = "HYPERRAM";
+	};
+};

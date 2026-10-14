@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config AXC3000_HYPERRAM
+	bool "AXC3000 onboard HyperRAM"
+	default $(dt_nodelabel_enabled,hyperram)
+	help
+	  Waits at boot for the HyperRAM's calibration (hyperram_axi holds the
+	  bus until then) and puts a k_heap, hyperram_heap, on the part of the
+	  'hyperram' devicetree memory region the linker does not use.
+	  Needs zephyr_overlays/niosv_g_hyperram.overlay, and
+	  CONFIG_SYS_HEAP_AUTO=y (or _BIG_ONLY): the 256 KB on-chip RAM makes
+	  Zephyr default to small-only heaps, capped at 256 KB.
+
+config AXC3000_HYPERRAM_CALIBRATION_TIMEOUT_MS
+	int "Longest wait for the HyperRAM calibration"
+	default 1000
+	depends on AXC3000_HYPERRAM
