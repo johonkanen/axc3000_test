@@ -22,11 +22,12 @@
 --   2. 32-bit beats vs the core's 64-bit ones: the byte address's bit 2
 --      selects which half of a 64-bit beat a 32-bit AXI4-Lite transfer
 --      lands in; the unused half is write-strobed off and, for reads,
---      discarded by picking the right half of r_data. Latched per owner
---      (d_read_bit2/i_read_bit2) since each master is assumed to have at
---      most one outstanding transaction per direction at a time - true
---      for Nios V/g's non-pipelined AXI4-Lite masters, not asserted here
---      in hardware.
+--      discarded by picking the right half of r_data. Each read's bit 2
+--      goes into a FIFO, in the order the reads were accepted, and comes
+--      out with its R beat - hyperram_axi returns reads in that order, so
+--      any number of reads may be in flight from either master (a cache
+--      line fill, or both masters merged by an interconnect onto one port).
+--      Read grants wait while the FIFO is full.
 --
 -- Hardware-tested on the data side only (niosv_zephyr_top.vhd uses the d_*
 -- port for the HyperRAM data window, i_* tied off): apps/hyperram_memtest
@@ -119,7 +120,16 @@ architecture rtl of hyperram_axi4lite_bridge is
     signal w_pending   : std_logic := '0';   -- an accepted write's W phase not sent yet
     signal write_owner : std_logic := '0';
     signal write_bit2  : std_logic := '0';
-    signal d_read_bit2, i_read_bit2 : std_logic := '0';
+
+    -- bit 2 of every read in flight, in acceptance order
+    constant read_fifo_depth : natural := 16;
+    type bit_fifo is array (0 to read_fifo_depth - 1) of std_logic;
+    signal read_bit2   : bit_fifo := (others => '0');
+    signal read_head   : natural range 0 to read_fifo_depth - 1 := 0;
+    signal read_tail   : natural range 0 to read_fifo_depth - 1 := 0;
+    signal read_count  : natural range 0 to read_fifo_depth := 0;
+    signal read_full   : std_logic;
+    signal r_bit2      : std_logic;
 
     -- this cycle's arbitration result (combinational)
     signal req_d_aw, req_d_ar, req_i_aw, req_i_ar : std_logic;
@@ -134,8 +144,9 @@ begin
     -- the file header for why
     req_d_aw <= d_awvalid and not w_pending;
     req_i_aw <= i_awvalid and not w_pending;
-    req_d_ar <= d_arvalid;
-    req_i_ar <= i_arvalid;
+    req_d_ar <= d_arvalid and not read_full;
+    req_i_ar <= i_arvalid and not read_full;
+    read_full <= '1' when read_count = read_fifo_depth else '0';
 
     arw_valid <= req_d_aw or req_d_ar or req_i_aw or req_i_ar;
     arw_id    <= "0000000" & sel_owner;
@@ -169,24 +180,39 @@ begin
     end process;
 
     latch_grant : process(clock)
+        variable push, pop : boolean;
     begin
         if rising_edge(clock) then
-            if arw_valid = '1' and arw_ready = '1' then
-                if sel_is_write = '1' then
-                    w_pending   <= '1';
-                    write_owner <= sel_owner;
-                    write_bit2  <= arw_addr(2);
-                elsif sel_owner = data_owner then
-                    d_read_bit2 <= arw_addr(2);
-                else
-                    i_read_bit2 <= arw_addr(2);
-                end if;
+            push := arw_valid = '1' and arw_ready = '1' and sel_is_write = '0';
+            pop  := r_valid = '1' and r_ready = '1';
+
+            if arw_valid = '1' and arw_ready = '1' and sel_is_write = '1' then
+                w_pending   <= '1';
+                write_owner <= sel_owner;
+                write_bit2  <= arw_addr(2);
             end if;
             if w_valid = '1' and w_ready = '1' then
                 w_pending <= '0';
             end if;
+
+            if push then
+                read_bit2(read_tail) <= arw_addr(2);
+                read_tail <= (read_tail + 1) mod read_fifo_depth;
+            end if;
+            if pop then
+                read_head <= (read_head + 1) mod read_fifo_depth;
+            end if;
+            if push and not pop then
+                read_count <= read_count + 1;
+            elsif pop and not push then
+                read_count <= read_count - 1;
+            end if;
+
             if reset then
-                w_pending <= '0';
+                w_pending  <= '0';
+                read_head  <= 0;
+                read_tail  <= 0;
+                read_count <= 0;
             end if;
         end if;
     end process;
@@ -212,13 +238,14 @@ begin
     d_bresp  <= "00";    -- always OKAY - hyperram_axi never reports otherwise
     i_bresp  <= "00";
 
-    -- R channel: routed by r_id's owner bit, half selected by that owner's latched bit2
+    -- R channel: routed by r_id's owner bit, half selected by the oldest read's bit 2
     d_rvalid <= r_valid when r_id(0) = data_owner   else '0';
     i_rvalid <= r_valid when r_id(0) = instr_owner else '0';
     r_ready  <= d_rready when r_id(0) = data_owner else i_rready;
     d_rresp  <= r_resp;
     i_rresp  <= r_resp;
-    d_rdata  <= r_data(63 downto 32) when d_read_bit2 = '1' else r_data(31 downto 0);
-    i_rdata  <= r_data(63 downto 32) when i_read_bit2 = '1' else r_data(31 downto 0);
+    r_bit2   <= read_bit2(read_head);
+    d_rdata  <= r_data(63 downto 32) when r_bit2 = '1' else r_data(31 downto 0);
+    i_rdata  <= r_data(63 downto 32) when r_bit2 = '1' else r_data(31 downto 0);
 
 end architecture rtl;

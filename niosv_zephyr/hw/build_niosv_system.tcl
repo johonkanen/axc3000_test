@@ -36,7 +36,22 @@ set_instance_parameter_value rr0 outputType {Reset Interface}
 add_instance cpu0 intel_niosv_g
 set_instance_parameter_value cpu0 clockFrequency 25000000.0
 set_instance_parameter_value cpu0 dataCacheSize   0
-set_instance_parameter_value cpu0 instCacheSize   0
+# 16 KB instruction cache (the largest): Zephyr's code runs from the
+# HyperRAM (XIP, see zephyr_overlays/niosv_g_hyperram_xip.overlay), whose
+# uncached fetches would be ~1 us each. No data cache: data stays in on-chip
+# RAM, and the peripherals need no uncached region.
+set_instance_parameter_value cpu0 instCacheSize   16384
+# With any cache configured, everything outside a peripheral region is
+# cacheable - including, for instruction fetches, the debug module: the CPU
+# executes the debugger's program buffer from dm_agent (0x40000), and a
+# cached copy turns every later debugger memory write / register read into
+# stale code (corrupted program loads, "Unexpected read of fp via program
+# buffer"). Region A: dm_agent, 0x40000-0x7FFFF. Region B: 0x80000-0xFFFFF,
+# timer_sw_agent 0x90000, uart0 0x90078 and the pio_hr_* at 0xA0000.
+set_instance_parameter_value cpu0 peripheralRegionABase 0x00040000
+set_instance_parameter_value cpu0 peripheralRegionASize 262144
+set_instance_parameter_value cpu0 peripheralRegionBBase 0x00080000
+set_instance_parameter_value cpu0 peripheralRegionBSize 524288
 set_instance_parameter_value cpu0 resetOffset      0
 set_instance_parameter_value cpu0 resetSlave       Absolute
 
@@ -74,7 +89,8 @@ set_instance_parameter_value pio_hr_timeouts direction Input
 set_instance_parameter_value pio_hr_timeouts width 32
 
 # ---------------------------------------------------------------- HyperRAM memory window
-# A 16 MB AXI4-Lite window onto the HyperRAM, exported (m0) to
+# A 16 MB AXI4-Lite window onto the HyperRAM, for both cpu0 managers (data,
+# and instructions to run code from it), exported (m0) to
 # niosv_zephyr_top.vhd, where hyperram_axi4lite_bridge adapts it to
 # hyperram_axi's native port. The bridge runs on the HyperRAM core's own
 # 100 MHz clock (hr_clk_in, rpll0 outclk0) and reset (hr_reset_in, the PLL
@@ -152,6 +168,10 @@ set_connection_parameter_value cpu0.data_manager/pio_hr_timeouts.s1 baseAddress 
 
 add_connection cpu0.data_manager hr_axi.s0
 set_connection_parameter_value cpu0.data_manager/hr_axi.s0 baseAddress 0x01000000
+# the instruction side too, to execute from the HyperRAM - both managers
+# merge onto hr_axi's one port (hyperram_axi4lite_bridge's data side)
+add_connection cpu0.instruction_manager hr_axi.s0
+set_connection_parameter_value cpu0.instruction_manager/hr_axi.s0 baseAddress 0x01000000
 
 # ---------------------------------------------------------------- debug module
 # Intel's own AXC3000 NIOSV_lab reference (ArrowElectronics/altera_workshops)

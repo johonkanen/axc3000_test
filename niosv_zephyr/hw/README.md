@@ -81,24 +81,37 @@ already-configured board - no bitstream rebuild per test:
 juart-terminal
 ```
 
-Getting there needed one more fix: `niosv-download --use_openocd` reaches
-a working debug-module halt+examine fine (once the Reset Release IP above
-was in place), but the actual GDB load step failed with a `libncursesw`
-symbol-version conflict - `niosv-download`'s native launcher sets
-`LD_LIBRARY_PATH` to Quartus's bundled `qcore/linux64/`, whose
-`libncursesw.so.6` is too old for the Zephyr SDK's
-`riscv64-zephyr-elf-gdb`, and that `LD_LIBRARY_PATH` is reset for every
-subprocess niosv-download spawns, so exporting a fix in the calling shell
-doesn't survive. `LD_PRELOAD`-ing the system's newer `libncursesw.so.6`
-doesn't work either - it survives into *every* subprocess including plain
-`sh`, mixing it with `qcore`'s older `libtinfo` and breaking shell
-invocations outright (`undefined symbol: TABSIZE`).
+`download.sh` drives OpenOCD directly (`openocd-cfg-gen`, then one `mww`
+per word of every loadable ELF segment, a read-back compare, `fence.i`
+through the debug program buffer, `pc` = the ELF's entry point, `resume`)
+rather than `niosv-download`. Three reasons, all from the instruction cache
+or XIP:
 
-The fix: `gdb-wrapper/riscv64-zephyr-elf-gdb`, a thin script that strips
-`LD_LIBRARY_PATH` for just the one `exec` of the real gdb, placed ahead of
-`niosv/bin` on `PATH` (`download.sh` does this). That's enough for the
-real gdb to resolve `libncursesw` via the normal system search path
-instead.
+- **block memory writes drop words with the I-cache on.** OpenOCD's
+  `load_image`/`write_memory` (and `niosv-download`'s GDB `load`, which
+  uses the same path) write through the debug module's auto-repeating
+  program-buffer loop; with the I-cache configured, some writes are lost and
+  the rest of the block lands shifted down a word (`write_memory 0x3f100 32
+  {0xa0 .. 0xa7}` reads back `0xa0 0xa1 0xa3 0xa4 0xa6 0xa7 ..`). Single
+  `mww` writes and every read are fine, so the image is written word by word
+  (~3 KB/s - 45 s for 15 KB) and verified by reading it back;
+- `niosv-download` has no `fence.i` step, so the CPU would run whatever its
+  I-cache still holds of the previous program;
+- an XIP build's entry point is in the HyperRAM (`0x01000000`), not at the
+  reset vector, and is taken from the ELF header here.
+
+Also from the I-cache: the debug module (`dm_agent`, `0x40000`) and the
+peripherals must be inside Nios V/g *peripheral regions* (uncached) once
+any cache is configured - see `build_niosv_system.tcl`. Arrow's
+`niosv_qspi_hyperram_refdes` does the same (its regions cover its
+peripherals and debug module).
+
+Earlier history: `niosv-download --use_openocd`'s GDB step failed with a
+`libncursesw` symbol-version conflict (its launcher sets `LD_LIBRARY_PATH`
+to Quartus's `qcore/linux64/`, too old for the Zephyr SDK's gdb).
+`gdb-wrapper/riscv64-zephyr-elf-gdb` strips `LD_LIBRARY_PATH` for the one
+`exec` of the real gdb - still useful for interactive GDB sessions with the
+Quartus tools on `PATH`.
 
 ## Bring-up without live JTAG download: baking a program into `ram0`
 
@@ -137,8 +150,8 @@ before committing.
 | `build_niosv_project.tcl` | `quartus_sh` source: creates the Quartus project, pins, SDC, and all `QIP_FILE`s - mirrors the repo-root `build_uart_bringup.tcl` pattern |
 | `niosv_zephyr_top.vhd` | board-level wrapper: `clk_clk` (pin A7) / `reset_reset_n` (pin A12) into the qsys system's `clk_in`/`reset_in` exports |
 | `niosv_zephyr.sdc` | `create_clock` on `clk_clk` (no PLL to inherit a clock from this time) |
-| `download.sh` | load + run an ELF over JTAG without reflashing - the normal day-to-day iteration path |
-| `gdb-wrapper/riscv64-zephyr-elf-gdb` | fixes `download.sh`'s `libncursesw` conflict - see above |
+| `download.sh` | load + run an ELF over JTAG without reflashing (OpenOCD, word-by-word + verified, `fence.i`, starts at the ELF entry - XIP too) - the normal day-to-day iteration path |
+| `gdb-wrapper/riscv64-zephyr-elf-gdb` | GDB with Quartus's `LD_LIBRARY_PATH` stripped (the `libncursesw` conflict) - for interactive debugging |
 | `bake_hex_into_ram.tcl` | fallback bring-up helper - see above. Not part of the normal build. |
 | `ip/niosv_zephyr_sys/niosv_zephyr_sys_{cb,cpu0,ram0,rb,rr0,uart0,pio_hr_status,pio_hr_debug_lo,pio_hr_debug_hi,pio_hr_timeouts}.ip` | per-instance IP variation files - **committed**, same convention as the repo-root `ip/pll_100/pll_100.ip`. Their generated HDL trees (`ip/niosv_zephyr_sys/niosv_zephyr_sys_<inst>/`) are not. |
 | `hyperram_pins.vhd` | HyperRAM DDIO pin-level wiring (CK/CSn/RESETn/RWDS/DQ) - see `docs/hyperram_pinout.md` |

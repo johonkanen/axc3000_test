@@ -5,11 +5,13 @@
 -- calibration-only so far - see niosv_zephyr/README.md).
 --
 -- The HyperRAM (source/hVHDL_memory_library's hyperram_axi) is a 16 MB
--- data window at 0x01000000 on Nios V/g's data_manager: niosv_zephyr_sys
+-- window at 0x01000000 on both Nios V/g managers (data, and instructions -
+-- Zephyr can execute from it): niosv_zephyr_sys
 -- exports an AXI4-Lite manager (hr_axi, already crossed into the 100 MHz
 -- HyperRAM clock domain by Platform Designer), and hyperram_axi4lite_bridge
 -- adapts it to hyperram_axi's native port (32-bit transfers into its 64-bit
--- beats). The instruction-side port of that bridge is unused (tied off).
+-- beats). Platform Designer merges both managers onto hr_axi, so the
+-- bridge's own instruction-side port is unused (tied off).
 -- Calibration status/debug is read back by Nios V/g over four read-only PIO
 -- registers
 -- (pio_hr_status/_debug_lo/_debug_hi/_timeouts, exported from

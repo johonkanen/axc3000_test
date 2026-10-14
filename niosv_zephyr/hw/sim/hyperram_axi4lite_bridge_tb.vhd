@@ -2,9 +2,9 @@
 -- (arbitration between the two masters, 32<->64 bit placement, write
 -- serialisation, id-based response routing) against a simple behavioural
 -- mock of hyperram_axi's native port, not the real core - that part is
--- already covered by hVHDL_memory_library's own testbench. The mock
--- accepts one command at a time (legal: hyperram_axi may accept up to 4
--- queued, it isn't required to), applying writes/returning reads from an
+-- already covered by hVHDL_memory_library's own testbench. The mock keeps
+-- up to 4 reads queued and returns them in order, a few cycles later (as
+-- hyperram_axi does), and takes one write at a time; data comes from an
 -- 8-word memory indexed by addr(5 downto 3).
 --
 -- Each `run(...)` test gets its own fresh simulation (VUnit's default), so
@@ -59,11 +59,19 @@ architecture vunit_simulation of hyperram_axi4lite_bridge_tb is
     signal r_resp : std_logic_vector(1 downto 0) := "00";
     signal r_last : std_logic := '0';
 
-    -- the mock: single command in flight at a time
-    type mock_state_t is (idle, writing, reading);
+    -- the mock: a queue of up to 4 reads, one write at a time
+    type mock_state_t is (idle, writing);
     signal mock_state : mock_state_t := idle;
     signal mock_id     : std_logic_vector(7 downto 0) := (others => '0');
     signal mock_beat   : unsigned(2 downto 0) := (others => '0');
+    type read_entry is record
+        id   : std_logic_vector(7 downto 0);
+        beat : unsigned(2 downto 0);
+    end record;
+    type read_queue_t is array (0 to 3) of read_entry;
+    signal read_queue : read_queue_t;
+    signal rq_count   : natural range 0 to 4 := 0;
+    signal rq_delay   : natural range 0 to 3 := 0;
     type mem_array is array (0 to 7) of std_logic_vector(63 downto 0);
     signal mem : mem_array := (others => (others => '0'));
 
@@ -95,24 +103,46 @@ begin
     );
 
     -- the mock core
-    arw_ready <= '1' when mock_state = idle else '0';
+    arw_ready <= '1' when mock_state = idle and rq_count < 4 else '0';
     w_ready   <= '1' when mock_state = writing else '0';
 
     mock : process(clock)
+        variable q : read_queue_t;
+        variable n : natural range 0 to 4;
     begin
         if rising_edge(clock) then
             b_valid <= '0';
             r_valid <= '0';
+            q := read_queue;
+            n := rq_count;
+
+            -- the oldest read comes back once its delay is over (r_ready is
+            -- always '1' in this testbench)
+            if n > 0 then
+                if rq_delay = 3 then
+                    r_id    <= q(0).id;
+                    r_data  <= mem(to_integer(q(0).beat));
+                    r_last  <= '1';
+                    r_resp  <= "00";
+                    r_valid <= '1';
+                    q(0 to 2) := q(1 to 3);
+                    n := n - 1;
+                    rq_delay <= 0;
+                else
+                    rq_delay <= rq_delay + 1;
+                end if;
+            end if;
 
             case mock_state is
                 when idle =>
                     if arw_valid = '1' and arw_ready = '1' then
-                        mock_id   <= arw_id;
-                        mock_beat <= unsigned(arw_addr(5 downto 3));
                         if arw_write = '1' then
+                            mock_id    <= arw_id;
+                            mock_beat  <= unsigned(arw_addr(5 downto 3));
                             mock_state <= writing;
                         else
-                            mock_state <= reading;
+                            q(n) := (arw_id, unsigned(arw_addr(5 downto 3)));
+                            n := n + 1;
                         end if;
                     end if;
 
@@ -128,18 +158,15 @@ begin
                         b_valid <= '1';
                         mock_state <= idle;
                     end if;
-
-                when reading =>
-                    r_id    <= mock_id;
-                    r_data  <= mem(to_integer(mock_beat));
-                    r_last  <= '1';
-                    r_resp  <= "00";
-                    r_valid <= '1';
-                    mock_state <= idle;
             end case;
+
+            read_queue <= q;
+            rq_count   <= n;
 
             if reset then
                 mock_state <= idle;
+                rq_count   <= 0;
+                rq_delay   <= 0;
                 mem <= (others => (others => '0'));
             end if;
         end if;
@@ -288,6 +315,62 @@ begin
                 cycle;
                 check_equal(mem(3)(31 downto 0), std_logic_vector'(x"33334444"),
                             "instruction_manager's write went through after data_manager's finished");
+
+            elsif run("reads_in_flight_from_one_master_get_their_own_halves") then
+                -- a cache line fill: back-to-back reads of both halves of two
+                -- beats, all accepted before the first comes back
+                axi_write(d_awaddr, d_awvalid, d_awready, d_wdata, d_wstrb, d_wvalid, d_wready,
+                          d_bvalid, x"00000010", x"00000010");
+                axi_write(d_awaddr, d_awvalid, d_awready, d_wdata, d_wstrb, d_wvalid, d_wready,
+                          d_bvalid, x"00000014", x"00000014");
+                axi_write(d_awaddr, d_awvalid, d_awready, d_wdata, d_wstrb, d_wvalid, d_wready,
+                          d_bvalid, x"00000018", x"00000018");
+                axi_write(d_awaddr, d_awvalid, d_awready, d_wdata, d_wstrb, d_wvalid, d_wready,
+                          d_bvalid, x"0000001C", x"0000001C");
+
+                i_arvalid <= '0';
+                d_arvalid <= '1';
+                d_araddr  <= x"00000014";
+                wait until rising_edge(clock) and d_arready = '1';
+                d_araddr  <= x"00000010";
+                wait until rising_edge(clock) and d_arready = '1';
+                d_araddr  <= x"0000001C";
+                wait until rising_edge(clock) and d_arready = '1';
+                d_araddr  <= x"00000018";
+                wait until rising_edge(clock) and d_arready = '1';
+                d_arvalid <= '0';
+                check_equal(d_rvalid, '0', "all four accepted before the first came back");
+
+                for expected in 0 to 3 loop
+                    wait until rising_edge(clock) and d_rvalid = '1';
+                    case expected is
+                        when 0 => check_equal(d_rdata, std_logic_vector'(x"00000014"), "1st read");
+                        when 1 => check_equal(d_rdata, std_logic_vector'(x"00000010"), "2nd read");
+                        when 2 => check_equal(d_rdata, std_logic_vector'(x"0000001C"), "3rd read");
+                        when others => check_equal(d_rdata, std_logic_vector'(x"00000018"), "4th read");
+                    end case;
+                end loop;
+
+            elsif run("reads_in_flight_from_both_masters_get_their_own_halves") then
+                axi_write(d_awaddr, d_awvalid, d_awready, d_wdata, d_wstrb, d_wvalid, d_wready,
+                          d_bvalid, x"00000010", x"D0D0D0D0");
+                axi_write(d_awaddr, d_awvalid, d_awready, d_wdata, d_wstrb, d_wvalid, d_wready,
+                          d_bvalid, x"00000014", x"1D1D1D1D");
+
+                -- both present a read at once: data's (low half) is granted
+                -- first, instruction's (high half) next cycle, both in flight
+                d_araddr <= x"00000010"; d_arvalid <= '1';
+                i_araddr <= x"00000014"; i_arvalid <= '1';
+                wait until rising_edge(clock) and d_arready = '1';
+                d_arvalid <= '0';
+                wait until rising_edge(clock) and i_arready = '1';
+                i_arvalid <= '0';
+
+                wait until rising_edge(clock) and (d_rvalid = '1' or i_rvalid = '1');
+                check_equal(d_rvalid, '1', "data_manager's read comes back first");
+                check_equal(d_rdata, std_logic_vector'(x"D0D0D0D0"), "data_manager got the low half");
+                wait until rising_edge(clock) and i_rvalid = '1';
+                check_equal(i_rdata, std_logic_vector'(x"1D1D1D1D"), "instruction_manager got the high half");
             end if;
         end loop;
 

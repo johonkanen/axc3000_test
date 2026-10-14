@@ -1,7 +1,8 @@
 /* Zephyr using the AXC3000 HyperRAM through zephyr_module (axc3000):
  * a static buffer in the HYPERRAM section, the hyperram_heap, memcpy
  * between on-chip RAM and HyperRAM, and two threads working on HyperRAM
- * blocks at once.
+ * blocks at once. Built with -DHYPERRAM_XIP=1 the code itself runs from the
+ * HyperRAM (see CMakeLists.txt); a CPU-bound loop is timed either way.
  */
 #include <zephyr/kernel.h>
 #include <zephyr/sys/sys_heap.h>
@@ -45,6 +46,39 @@ static bool fill_and_verify(uint32_t *p, size_t words, uint32_t seed)
 		}
 	}
 	return true;
+}
+
+/* CPU-bound: bitwise CRC-32 over the on-chip RAM buffer - its speed shows
+ * where the code runs from (the loop fits the instruction cache)
+ */
+static uint32_t crc32(const uint8_t *p, size_t n, uint32_t crc)
+{
+	crc = ~crc;
+	while (n--) {
+		crc ^= *p++;
+		for (int k = 0; k < 8; k++) {
+			crc = (crc >> 1) ^ (0xedb88320u & -(crc & 1));
+		}
+	}
+	return ~crc;
+}
+
+static void benchmark(void)
+{
+	uint32_t crc = 0;
+
+	for (size_t i = 0; i < ARRAY_SIZE(sram_buffer); i++) {
+		sram_buffer[i] = pattern(i, 3);
+	}
+
+	int64_t t0 = k_uptime_get();
+
+	for (int round = 0; round < 16; round++) {
+		crc = crc32((const uint8_t *)sram_buffer, sizeof(sram_buffer), crc);
+	}
+	int64_t t1 = k_uptime_get();
+
+	printk("  CRC-32 of 64 KB: 0x%08x in %lld ms (same CRC in every build)\n", crc, t1 - t0);
 }
 
 static void test_static_buffer(void)
@@ -171,7 +205,14 @@ static void test_threads(void)
 
 int main(void)
 {
+	uintptr_t code = (uintptr_t)main;
+	bool xip = code >= 0x01000000u && code < 0x02000000u;
+
 	printk("Zephyr on the AXC3000 HyperRAM: status 0x%08x\n", hyperram_status());
+	printk("main() at 0x%08lx: running from %s\n", (unsigned long)code,
+	       xip ? "the HyperRAM (XIP)" : "on-chip RAM");
+	check(xip == IS_ENABLED(CONFIG_XIP), "code where the build put it");
+	benchmark();
 	if (!hyperram_ready()) {
 		printk("RESULT: FAIL (HyperRAM not ready)\n");
 		return 0;

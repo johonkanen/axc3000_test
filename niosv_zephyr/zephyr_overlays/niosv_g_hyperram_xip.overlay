@@ -1,0 +1,34 @@
+/*
+ * Zephyr executing from the AXC3000's HyperRAM (use instead of
+ * niosv_g_hyperram.overlay, with CONFIG_XIP=y). The 16 MB window at
+ * 0x01000000 is split in two:
+ *
+ *   0x01000000  8 MB  "flash": chosen zephyr,flash, so with CONFIG_XIP the
+ *                     code and read-only data are linked here (.data is
+ *                     copied from here into on-chip RAM at boot; .bss,
+ *                     stacks and the kernel stay in on-chip RAM)
+ *   0x01800000  8 MB  the 'hyperram' memory region, as in
+ *                     niosv_g_hyperram.overlay (HYPERRAM_SECTION, hyperram_heap)
+ *
+ * The "flash" is RAM: niosv-download writes the program into it over JTAG
+ * (hw/download.sh). It is not kept over a power cycle, and the CPU's reset
+ * vector is in on-chip RAM - download.sh starts the program at its entry
+ * point instead.
+ */
+
+/ {
+	chosen {
+		zephyr,flash = &hyperram_code;
+	};
+
+	hyperram_code: memory@1000000 {
+		compatible = "soc-nv-flash";
+		reg = <0x01000000 0x00800000>;	/* 8 MB */
+	};
+
+	hyperram: memory@1800000 {
+		compatible = "zephyr,memory-region";
+		reg = <0x01800000 0x00800000>;	/* 8 MB */
+		zephyr,memory-region = "HYPERRAM";
+	};
+};
