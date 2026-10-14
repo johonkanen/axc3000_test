@@ -140,7 +140,11 @@ before committing.
 | `download.sh` | load + run an ELF over JTAG without reflashing - the normal day-to-day iteration path |
 | `gdb-wrapper/riscv64-zephyr-elf-gdb` | fixes `download.sh`'s `libncursesw` conflict - see above |
 | `bake_hex_into_ram.tcl` | fallback bring-up helper - see above. Not part of the normal build. |
-| `ip/niosv_zephyr_sys/niosv_zephyr_sys_{cb,cpu0,ram0,rb,rr0,uart0}.ip` | per-instance IP variation files - **committed**, same convention as the repo-root `ip/pll_100/pll_100.ip`. Their generated HDL trees (`ip/niosv_zephyr_sys/niosv_zephyr_sys_<inst>/`) are not. |
+| `ip/niosv_zephyr_sys/niosv_zephyr_sys_{cb,cpu0,ram0,rb,rr0,uart0,pio_hr_status,pio_hr_debug_lo,pio_hr_debug_hi,pio_hr_timeouts}.ip` | per-instance IP variation files - **committed**, same convention as the repo-root `ip/pll_100/pll_100.ip`. Their generated HDL trees (`ip/niosv_zephyr_sys/niosv_zephyr_sys_<inst>/`) are not. |
+| `hyperram_pins.vhd` | HyperRAM DDIO pin-level wiring (CK/CSn/RESETn/RWDS/DQ) - see `docs/hyperram_pinout.md` |
+| `hyperram_pll_reconfig.vhd` | AXI4-Lite master FSM that drives `rpll0`'s dynamic phase shift through `emif_cal` - see `docs/agilex3_dynamic_pll_reconfig.md` for the full mechanism |
+| `ip/rpll0/rpll0.ip` | the HyperRAM clock PLL - flat `.ip`, `gui_en_iossm_reconf=true` |
+| `ip/emif_cal/emif_cal.qsys` + `ip/emif_cal/ip/emif_cal/emif_cal_cal0.ip` | the AXI4-Lite-to-calibration-bus bridge (`emif_io96b_cal`) `rpll0`'s reconfiguration goes through - **both files matter**, see `docs/agilex3_dynamic_pll_reconfig.md` |
 
 Generated output (`niosv_zephyr_sys.qsys`, `niosv_zephyr_sys/`, the per-instance
 generated trees, the Quartus project/output files, any `.hex`) is **not
@@ -149,16 +153,21 @@ committed**. Full rebuild from a clean checkout:
 ```
 export PATH="$HOME/altera_pro/26.1.1/quartus/bin:$HOME/altera_pro/26.1.1/quartus/sopc_builder/bin:$PATH"
 qsys-script --script=build_niosv_system.tcl
-for f in cb cpu0 ram0 rb rr0 uart0; do
+for f in cb cpu0 ram0 rb rr0 uart0 pio_hr_status pio_hr_debug_lo pio_hr_debug_hi pio_hr_timeouts; do
     qsys-generate ip/niosv_zephyr_sys/niosv_zephyr_sys_$f.ip --synthesis=VHDL --part=A3CY100BM16AE7S
 done
 qsys-generate niosv_zephyr_sys.qsys --synthesis=VHDL --part=A3CY100BM16AE7S
+qsys-generate ip/rpll0/rpll0.ip --synthesis=VHDL --part=A3CY100BM16AE7S
+qsys-generate ip/emif_cal/emif_cal.qsys --synthesis=VHDL --part=A3CY100BM16AE7S
 quartus_sh -t build_niosv_project.tcl
 quartus_syn niosv_zephyr
 quartus_fit niosv_zephyr
 quartus_sta niosv_zephyr
 quartus_asm niosv_zephyr
 ```
+
+(Or just run `./build_all.sh`, which does all of the above plus the
+generated-output cleanup each build needs.)
 
 This produces a clean, blank-RAM `.sof` - program it once, then use
 `download.sh` for every test after that.
@@ -170,6 +179,30 @@ quartus_pgm -c 1 -m jtag -o "p;output_files/niosv_zephyr.sof"   # once per hardw
 ./download.sh path/to/some.elf                                  # every test after that
 juart-terminal   # no board pins needed - rides the same JTAG cable as program.sh
 ```
+
+## Phase 5/6: HyperRAM bring-up and dynamic PLL phase shift
+
+Adds the AXC3000's onboard HyperRAM (pins, clocking, calibration-only so
+far - no AXI traffic wired to Nios V/g yet). `rpll0` clocks the HyperRAM
+CK pin and read-capture domain; its read-capture phase needs to be swept
+at runtime by `hyperram_axi`'s own calibration logic, which the
+compile-time PLL phase-shift parameter can't do on this Quartus/Agilex 3
+combination. `hyperram_pll_reconfig.vhd` + `ip/emif_cal/` solve that -
+see `docs/agilex3_dynamic_pll_reconfig.md` for the full mechanism and why
+it needs to go through an AXI4-Lite bridge rather than a direct mailbox.
+
+**Confirmed working on real hardware:** the reconfiguration mechanism
+itself runs clean - `hyperram_axi`'s calibration sweep completes with
+zero bus timeouts, meaning the AXI4-Lite RMW path through `emif_cal` to
+`rpll0`'s calibration bus doesn't hang or break anything on silicon.
+
+**Not yet passing:** none of the 8 phase candidates `hyperram_axi` tries
+currently pass its own HyperRAM read-back self-test (`pio_hr_status`
+reads back `calibrated=1, passed=0`, polled via
+`niosv_zephyr/apps/hyperram_status`). Not yet root-caused whether this is
+a pre-existing electrical/pinout issue or something in how the phase
+shift lands on real hardware - see project memory for where to pick this
+up.
 
 ## Next: Phase 3 (stretch)
 

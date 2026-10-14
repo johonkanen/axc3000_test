@@ -49,19 +49,64 @@ set_instance_parameter_value ram0 writable      1
 # ---------------------------------------------------------------- JTAG UART console
 add_instance uart0 altera_avalon_jtag_uart
 
+# ---------------------------------------------------------------- HyperRAM bring-up status readback
+# Read-only windows onto hyperram_axi's calibration/debug outputs (wired in
+# niosv_zephyr_top.vhd, synchronised into this 25 MHz domain there - the
+# core itself runs on the HyperRAM PLL's domain, not this one). No AXI
+# traffic to HyperRAM yet - this phase is electrical/calibration bring-up
+# only, read by a Zephyr/bare-metal test program over the existing JTAG
+# UART, same pattern as every other milestone this project - see
+# niosv_zephyr/README.md "Phase 5/6".
+add_instance pio_hr_status altera_avalon_pio
+set_instance_parameter_value pio_hr_status direction Input
+set_instance_parameter_value pio_hr_status width 32
+
+add_instance pio_hr_debug_lo altera_avalon_pio
+set_instance_parameter_value pio_hr_debug_lo direction Input
+set_instance_parameter_value pio_hr_debug_lo width 32
+
+add_instance pio_hr_debug_hi altera_avalon_pio
+set_instance_parameter_value pio_hr_debug_hi direction Input
+set_instance_parameter_value pio_hr_debug_hi width 32
+
+add_instance pio_hr_timeouts altera_avalon_pio
+set_instance_parameter_value pio_hr_timeouts direction Input
+set_instance_parameter_value pio_hr_timeouts width 32
+
+# ---------------------------------------------------------------- HyperRAM PLL + reconfig
+# rpll0 (the HyperRAM clock PLL) and the emif_io96b_cal bridge it needs
+# for dynamic phase-shift reconfiguration both live OUTSIDE this system
+# entirely, instantiated directly in niosv_zephyr_top.vhd - see that
+# file's header for the full story (nesting a PLL as a plain Qsys
+# instance in here hit a Fitter placement failure). See ip/rpll0/ and
+# ip/emif_cal/ for how each is generated, and the session's project
+# memory for the diagnostic trail.
+
 # ---------------------------------------------------------------- clock fanout
 add_connection cb.out_clk cpu0.clk
 add_connection cb.out_clk ram0.clk1
 add_connection cb.out_clk uart0.clk
+add_connection cb.out_clk pio_hr_status.clk
+add_connection cb.out_clk pio_hr_debug_lo.clk
+add_connection cb.out_clk pio_hr_debug_hi.clk
+add_connection cb.out_clk pio_hr_timeouts.clk
 
 # ---------------------------------------------------------------- reset fanout
 add_connection rb.out_reset cpu0.reset
 add_connection rb.out_reset ram0.reset1
 add_connection rb.out_reset uart0.reset
+add_connection rb.out_reset pio_hr_status.reset
+add_connection rb.out_reset pio_hr_debug_lo.reset
+add_connection rb.out_reset pio_hr_debug_hi.reset
+add_connection rb.out_reset pio_hr_timeouts.reset
 
 add_connection rr0.ninit_done cpu0.reset
 add_connection rr0.ninit_done ram0.reset1
 add_connection rr0.ninit_done uart0.reset
+add_connection rr0.ninit_done pio_hr_status.reset
+add_connection rr0.ninit_done pio_hr_debug_lo.reset
+add_connection rr0.ninit_done pio_hr_debug_hi.reset
+add_connection rr0.ninit_done pio_hr_timeouts.reset
 
 # ---------------------------------------------------------------- memory map
 add_connection cpu0.instruction_manager ram0.s1
@@ -73,6 +118,15 @@ set_connection_parameter_value cpu0.data_manager/uart0.avalon_jtag_slave baseAdd
 
 add_connection cpu0.data_manager cpu0.timer_sw_agent
 set_connection_parameter_value cpu0.data_manager/cpu0.timer_sw_agent baseAddress 0x00090000
+
+add_connection cpu0.data_manager pio_hr_status.s1
+set_connection_parameter_value cpu0.data_manager/pio_hr_status.s1 baseAddress 0x000A0000
+add_connection cpu0.data_manager pio_hr_debug_lo.s1
+set_connection_parameter_value cpu0.data_manager/pio_hr_debug_lo.s1 baseAddress 0x000A0010
+add_connection cpu0.data_manager pio_hr_debug_hi.s1
+set_connection_parameter_value cpu0.data_manager/pio_hr_debug_hi.s1 baseAddress 0x000A0020
+add_connection cpu0.data_manager pio_hr_timeouts.s1
+set_connection_parameter_value cpu0.data_manager/pio_hr_timeouts.s1 baseAddress 0x000A0030
 
 # ---------------------------------------------------------------- debug module
 # Intel's own AXC3000 NIOSV_lab reference (ArrowElectronics/altera_workshops)
@@ -98,5 +152,14 @@ set_interface_property clk_in EXPORT_OF cb.in_clk
 
 add_interface reset_in reset sink
 set_interface_property reset_in EXPORT_OF rb.in_reset
+
+add_interface hr_status conduit end
+set_interface_property hr_status EXPORT_OF pio_hr_status.external_connection
+add_interface hr_debug_lo conduit end
+set_interface_property hr_debug_lo EXPORT_OF pio_hr_debug_lo.external_connection
+add_interface hr_debug_hi conduit end
+set_interface_property hr_debug_hi EXPORT_OF pio_hr_debug_hi.external_connection
+add_interface hr_timeouts conduit end
+set_interface_property hr_timeouts EXPORT_OF pio_hr_timeouts.external_connection
 
 save_system {niosv_zephyr_sys.qsys}

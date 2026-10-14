@@ -33,6 +33,18 @@ serv_req_info.txt
 ip/*/*/
 niosv_zephyr/hw/ip/*/*/
 
+# emif_cal is a qsys SYSTEM (not a flat .ip like the others above), so its
+# own per-instance source file is nested one level deeper
+# (ip/emif_cal/ip/emif_cal/emif_cal_cal0.ip) - the generic ip/*/*/ rule
+# above would also catch and hide that real source file, so carve it
+# back out before re-ignoring just its generated tree.
+!niosv_zephyr/hw/ip/emif_cal/ip/
+!niosv_zephyr/hw/ip/emif_cal/ip/emif_cal/
+!niosv_zephyr/hw/ip/emif_cal/ip/emif_cal/emif_cal_cal0.ip
+niosv_zephyr/hw/ip/emif_cal/ip/emif_cal/emif_cal_cal0/
+niosv_zephyr/hw/ip/emif_cal/ip/emif_cal/emif_cal_cal0_*/
+niosv_zephyr/hw/ip/emif_cal/ip/emif_cal/emif_cal_cal0_*.ip
+
 # python
 __pycache__/
 *.pyc
