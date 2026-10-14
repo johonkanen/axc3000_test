@@ -1,14 +1,20 @@
 # build_rpll0.tcl - how rpll0.ip was derived from the repo-root's own
 # proven, hardware-verified ip/pll_100/pll_100.ip (copied in as a starting
 # point, not hand-typed from scratch, same convention as
-# ip/hpll0/modify_upstream.tcl): three 100 MHz outputs and dynamic IOSSM
-# reconfiguration. Already applied and committed - this file is the
-# reproducible record, not something build_all.sh re-runs.
+# ip/hpll0/modify_upstream.tcl): three 100 MHz outputs, the CPU clock and
+# dynamic IOSSM reconfiguration. build_all.sh re-runs this before
+# generating (it only sets parameters, so it is idempotent): outclk3's
+# frequency is ::cpu_mhz, which build_all.sh sets from CPU_CLOCK_MHZ with
+# `qsys-script --cmd="set ::cpu_mhz N"` (default 120) - qsys-script's Tcl
+# does not see environment variables. Any integer divisor of the 2400 MHz
+# VCO (25, 100, 120, 150, 200, ...).
 #
 #   outclk0 (C0)  0 deg      hyperram core clock, output DDIO - never reconfigured
 #   outclk1 (C1)  0 deg      read capture - phase swept at runtime by calibration
 #   outclk2 (C2)  270 deg    CK pin DDIO ("the inverted 90 degree clock" the
 #                            core expects) - static, never reconfigured
+#   outclk3 (C3)  CPU_CLOCK_MHZ  niosv_zephyr_sys's clock (Nios V/g and its
+#                            bus) - never reconfigured
 #
 # Deliberately a FLAT .ip, not wrapped in its own Platform Designer
 # "system" - same convention pll_100.ip/hpll0.ip already use, and
@@ -40,10 +46,16 @@
 #
 package require qsys
 load_system rpll0.ip
-set_instance_parameter_value pll_100 gui_number_of_clocks 3
+# (not "set cpu_mhz 120" as the default: at global scope that IS ::cpu_mhz)
+set outclk3_mhz 120
+if {[info exists ::cpu_mhz]} {
+    set outclk3_mhz $::cpu_mhz
+}
+set_instance_parameter_value pll_100 gui_number_of_clocks 4
 set_instance_parameter_value pll_100 gui_output_clock_frequency1 100.0
 set_instance_parameter_value pll_100 gui_output_clock_frequency2 100.0
 set_instance_parameter_value pll_100 gui_ps_units2 degrees
 set_instance_parameter_value pll_100 gui_phase_shift_deg2 270.0
+set_instance_parameter_value pll_100 gui_output_clock_frequency3 [expr {double($outclk3_mhz)}]
 set_instance_parameter_value pll_100 gui_en_iossm_reconf true
 save_system rpll0.ip

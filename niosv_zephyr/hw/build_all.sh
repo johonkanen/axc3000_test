@@ -21,6 +21,13 @@
 # all fight over the same cores):
 #
 #   NUM_PARALLEL_PROCESSORS=8 ./build_all.sh
+#
+# CPU_CLOCK_MHZ (default 120) sets the Nios V/g clock - rpll0's outclk3, any
+# integer divisor of its 2400 MHz VCO (25, 100, 120, 150, 200, ...):
+#
+#   CPU_CLOCK_MHZ=150 ./build_all.sh
+# The Zephyr build must match: -DNIOSV_CPU_HZ=150000000 (default 120 MHz,
+# see apps/niosv_cpu_clock.cmake).
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -44,16 +51,30 @@ rm -rf niosv_zephyr_sys.qsys niosv_zephyr_sys ip/niosv_zephyr_sys/niosv_zephyr_s
        ip/emif_cal/ip/emif_cal/emif_cal_cal0_*/ ip/emif_cal/ip/emif_cal/emif_cal_cal0_[0-9]*.ip \
        ip/emif_cal/dni ip/emif_cal/qdb ip/emif_cal/db ip/emif_cal/incremental_db \
        ip/hr_gpio/hr_dq_io ip/hr_gpio/hr_ck_io \
+       ip/rpll0/build_rpll0.qpf ip/rpll0/build_rpll0.qsf \
        output_files db incremental_db dni qdb *.qws *.qpf *.qsf
 
+export CPU_CLOCK_MHZ="${CPU_CLOCK_MHZ:-120}"   # 150 also closes, by 0.1 ns; 200 fails
+echo "CPU clock: $CPU_CLOCK_MHZ MHz"
+
 step "qsys-script: build the Platform Designer system"
-qsys-script --script=build_niosv_system.tcl
+qsys-script --cmd="set ::cpu_mhz $CPU_CLOCK_MHZ" --script=build_niosv_system.tcl
 
 step "qsys-generate: the top system (regenerates every instance itself)"
 qsys-generate niosv_zephyr_sys.qsys --synthesis=VHDL --part=A3CY100BM16AE7S
 
+step "qsys-script: rpll0's CPU clock output (outclk3 = $CPU_CLOCK_MHZ MHz)"
+(cd ip/rpll0 && qsys-script --cmd="set ::cpu_mhz $CPU_CLOCK_MHZ" --script=build_rpll0.tcl)
+
 step "qsys-generate: rpll0 (standalone flat .ip, dynamically-reconfigurable HSIO/IOSSM PLL)"
 qsys-generate ip/rpll0/rpll0.ip --synthesis=VHDL --part=A3CY100BM16AE7S
+# the CPU clock really is what was asked for (a silent fallback to the
+# default once cost a whole round of builds)
+if ! grep -q "output_clock_frequency3\" value=\"${CPU_CLOCK_MHZ}.0 MHz\"" ip/rpll0/rpll0/rpll0.xml; then
+    echo "ERROR: rpll0 outclk3 is not ${CPU_CLOCK_MHZ} MHz:" >&2
+    grep -o 'output_clock_frequency3" value="[^"]*"' ip/rpll0/rpll0/rpll0.xml >&2 || true
+    exit 1
+fi
 
 step "qsys-generate: emif_cal (AXI4-Lite bridge to rpll0's calibration bus)"
 qsys-generate ip/emif_cal/emif_cal.qsys --synthesis=VHDL --part=A3CY100BM16AE7S

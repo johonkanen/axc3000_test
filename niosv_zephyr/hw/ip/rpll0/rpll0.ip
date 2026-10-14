@@ -378,6 +378,63 @@ Altera and sold by Altera or its authorized distributors.-->
         </altera:altera_assignments>
       </ipxact:vendorExtensions>
     </ipxact:busInterface>
+    <ipxact:busInterface>
+      <ipxact:name>outclk3</ipxact:name>
+      <ipxact:busType vendor="intel" library="intel" name="clock" version="26.1"></ipxact:busType>
+      <ipxact:abstractionTypes>
+        <ipxact:abstractionType>
+          <ipxact:abstractionRef vendor="intel" library="intel" name="clock" version="26.1"></ipxact:abstractionRef>
+          <ipxact:portMaps>
+            <ipxact:portMap>
+              <ipxact:logicalPort>
+                <ipxact:name>clk</ipxact:name>
+              </ipxact:logicalPort>
+              <ipxact:physicalPort>
+                <ipxact:name>outclk_3</ipxact:name>
+              </ipxact:physicalPort>
+            </ipxact:portMap>
+          </ipxact:portMaps>
+        </ipxact:abstractionType>
+      </ipxact:abstractionTypes>
+      <ipxact:master></ipxact:master>
+      <ipxact:parameters>
+        <ipxact:parameter parameterId="associatedDirectClock" type="string">
+          <ipxact:name>associatedDirectClock</ipxact:name>
+          <ipxact:displayName>Associated direct clock</ipxact:displayName>
+          <ipxact:value></ipxact:value>
+        </ipxact:parameter>
+        <ipxact:parameter parameterId="clockRate" type="longint">
+          <ipxact:name>clockRate</ipxact:name>
+          <ipxact:displayName>Clock rate</ipxact:displayName>
+          <ipxact:value>120000000</ipxact:value>
+        </ipxact:parameter>
+        <ipxact:parameter parameterId="clockRateKnown" type="bit">
+          <ipxact:name>clockRateKnown</ipxact:name>
+          <ipxact:displayName>Clock rate known</ipxact:displayName>
+          <ipxact:value>true</ipxact:value>
+        </ipxact:parameter>
+        <ipxact:parameter parameterId="externallyDriven" type="bit">
+          <ipxact:name>externallyDriven</ipxact:name>
+          <ipxact:displayName>Externally driven</ipxact:displayName>
+          <ipxact:value>false</ipxact:value>
+        </ipxact:parameter>
+        <ipxact:parameter parameterId="ptfSchematicName" type="string">
+          <ipxact:name>ptfSchematicName</ipxact:name>
+          <ipxact:displayName>PTF schematic name</ipxact:displayName>
+          <ipxact:value></ipxact:value>
+        </ipxact:parameter>
+      </ipxact:parameters>
+      <ipxact:vendorExtensions>
+        <altera:altera_assignments>
+          <ipxact:parameters>
+            <ipxact:parameter parameterId="ui.blockdiagram.direction" type="string">
+              <ipxact:name>ui.blockdiagram.direction</ipxact:name>
+              <ipxact:value>output</ipxact:value>
+            </ipxact:parameter>
+          </ipxact:parameters>
+        </altera:altera_assignments>
+      </ipxact:vendorExtensions>
+    </ipxact:busInterface>
   </ipxact:busInterfaces>
   <ipxact:model>
     <ipxact:views>
@@ -495,6 +552,18 @@ Altera and sold by Altera or its authorized distributors.-->
       </ipxact:port>
       <ipxact:port>
         <ipxact:name>outclk_2</ipxact:name>
+        <ipxact:wire>
+          <ipxact:direction>out</ipxact:direction>
+          <ipxact:wireTypeDefs>
+            <ipxact:wireTypeDef>
+              <ipxact:typeName>STD_LOGIC</ipxact:typeName>
+              <ipxact:viewRef>QUARTUS_SYNTH</ipxact:viewRef>
+            </ipxact:wireTypeDef>
+          </ipxact:wireTypeDefs>
+        </ipxact:wire>
+      </ipxact:port>
+      <ipxact:port>
+        <ipxact:name>outclk_3</ipxact:name>
         <ipxact:wire>
           <ipxact:direction>out</ipxact:direction>
           <ipxact:wireTypeDefs>
@@ -649,7 +718,7 @@ Altera and sold by Altera or its authorized distributors.-->
         <ipxact:parameter parameterId="system_info_device_component" type="string">
           <ipxact:name>system_info_device_component</ipxact:name>
           <ipxact:displayName>Component</ipxact:displayName>
-          <ipxact:value>A3CY100BM16AE7S</ipxact:value>
+          <ipxact:value>A3CU100BB23CE6S</ipxact:value>
         </ipxact:parameter>
         <ipxact:parameter parameterId="system_info_device_iobank_rev" type="string">
           <ipxact:name>system_info_device_iobank_rev</ipxact:name>
@@ -659,7 +728,7 @@ Altera and sold by Altera or its authorized distributors.-->
         <ipxact:parameter parameterId="system_part_trait_speed_grade" type="string">
           <ipxact:name>system_part_trait_speed_grade</ipxact:name>
           <ipxact:displayName>Speed Grade Trait</ipxact:displayName>
-          <ipxact:value>7</ipxact:value>
+          <ipxact:value>6</ipxact:value>
         </ipxact:parameter>
         <ipxact:parameter parameterId="system_part_trait_iobank_rev" type="string">
           <ipxact:name>system_part_trait_iobank_rev</ipxact:name>
@@ -669,7 +738,7 @@ Altera and sold by Altera or its authorized distributors.-->
         <ipxact:parameter parameterId="system_info_device_speed_grade" type="string">
           <ipxact:name>system_info_device_speed_grade</ipxact:name>
           <ipxact:displayName>Speed Grade</ipxact:displayName>
-          <ipxact:value>6</ipxact:value>
+          <ipxact:value>5</ipxact:value>
         </ipxact:parameter>
         <ipxact:parameter parameterId="gui_usr_device_speed_grade" type="string">
           <ipxact:name>gui_usr_device_speed_grade</ipxact:name>
@@ -844,7 +913,7 @@ Altera and sold by Altera or its authorized distributors.-->
         <ipxact:parameter parameterId="gui_number_of_clocks" type="int">
           <ipxact:name>gui_number_of_clocks</ipxact:name>
           <ipxact:displayName>Number Of Clocks</ipxact:displayName>
-          <ipxact:value>3</ipxact:value>
+          <ipxact:value>4</ipxact:value>
         </ipxact:parameter>
         <ipxact:parameter parameterId="gui_multiply_factor" type="int">
           <ipxact:name>gui_multiply_factor</ipxact:name>
@@ -1304,7 +1373,7 @@ Altera and sold by Altera or its authorized distributors.-->
         <ipxact:parameter parameterId="gui_output_clock_frequency3" type="real">
           <ipxact:name>gui_output_clock_frequency3</ipxact:name>
           <ipxact:displayName>Desired Frequency</ipxact:displayName>
-          <ipxact:value>100.0</ipxact:value>
+          <ipxact:value>120.0</ipxact:value>
         </ipxact:parameter>
         <ipxact:parameter parameterId="gui_output_clock_frequency4" type="real">
           <ipxact:name>gui_output_clock_frequency4</ipxact:name>
@@ -1864,7 +1933,7 @@ Altera and sold by Altera or its authorized distributors.-->
         <ipxact:parameter parameterId="device" type="string">
           <ipxact:name>device</ipxact:name>
           <ipxact:displayName>Device</ipxact:displayName>
-          <ipxact:value>A3CY100BM16AE7S</ipxact:value>
+          <ipxact:value>A3CU100BB23CE6S</ipxact:value>
         </ipxact:parameter>
         <ipxact:parameter parameterId="deviceFamily" type="string">
           <ipxact:name>deviceFamily</ipxact:name>
@@ -1874,7 +1943,7 @@ Altera and sold by Altera or its authorized distributors.-->
         <ipxact:parameter parameterId="deviceSpeedGrade" type="string">
           <ipxact:name>deviceSpeedGrade</ipxact:name>
           <ipxact:displayName>Device Speed Grade</ipxact:displayName>
-          <ipxact:value>7</ipxact:value>
+          <ipxact:value>6</ipxact:value>
         </ipxact:parameter>
         <ipxact:parameter parameterId="generationId" type="int">
           <ipxact:name>generationId</ipxact:name>
@@ -1951,6 +2020,19 @@ Altera and sold by Altera or its authorized distributors.-->
                 &lt;/consumedSystemInfos&gt;
             &lt;/value&gt;
         &lt;/entry&gt;
+        &lt;entry&gt;
+            &lt;key&gt;outclk3&lt;/key&gt;
+            &lt;value&gt;
+                &lt;connectionPointName&gt;outclk3&lt;/connectionPointName&gt;
+                &lt;suppliedSystemInfos/&gt;
+                &lt;consumedSystemInfos&gt;
+                    &lt;entry&gt;
+                        &lt;key&gt;CLOCK_RATE&lt;/key&gt;
+                        &lt;value&gt;120000000&lt;/value&gt;
+                    &lt;/entry&gt;
+                &lt;/consumedSystemInfos&gt;
+            &lt;/value&gt;
+        &lt;/entry&gt;
     &lt;/connPtSystemInfos&gt;
 &lt;/systemInfosDefinition&gt;</ipxact:value>
         </ipxact:parameter>
@@ -1982,6 +2064,9 @@ Altera and sold by Altera or its authorized distributors.-->
       </altera:interface_mapping>
       <altera:interface_mapping altera:name="outclk2" altera:internal="pll_100.outclk2" altera:type="clock" altera:dir="start">
         <altera:port_mapping altera:name="outclk_2" altera:internal="outclk_2"></altera:port_mapping>
+      </altera:interface_mapping>
+      <altera:interface_mapping altera:name="outclk3" altera:internal="pll_100.outclk3" altera:type="clock" altera:dir="start">
+        <altera:port_mapping altera:name="outclk_3" altera:internal="outclk_3"></altera:port_mapping>
       </altera:interface_mapping>
       <altera:interface_mapping altera:name="refclk" altera:internal="pll_100.refclk" altera:type="clock" altera:dir="end">
         <altera:port_mapping altera:name="refclk" altera:internal="refclk"></altera:port_mapping>

@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  AXC3000 UART with RX/TX FIFOs (niosv_zephyr/hw/uart/uart_axi4lite.vhd):
+  8N1, a fractional bit time (any baud rate up to clock / 4), interrupts on
+  an RX level, an RX idle timeout and TX space.
+
+compatible: "axc3000,uart-fifo"
+
+include: uart-controller.yaml
+
+properties:
+  reg:
+    required: true
+
+  clock-frequency:
+    type: int
+    description: |
+      The UART's clock (the bus clock), Hz. Default: the CPU's
+      clock-frequency - the UART is in the Nios V/g clock domain.
+
+  current-speed:
+    required: true
+
+  fifo-size:
+    type: int
+    default: 2048
+    description: Depth of each FIFO, bytes (the hardware's g_fifo_depth_log2).

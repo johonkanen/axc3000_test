@@ -1,0 +1,16 @@
+/*
+ * The FTDI serial port (AG23/AG24) through niosv_zephyr/hw/uart/'s UART with
+ * RX/TX FIFOs, at 0xB0000 (inside the Nios V/g peripheral region), platform
+ * interrupt 1 (= 17, after the JTAG UART's 16). Its clock is the CPU clock
+ * (apps/niosv_cpu_clock.cmake sets that).
+ */
+
+&{/soc} {
+	uart1: serial@b0000 {
+		compatible = "axc3000,uart-fifo";
+		reg = <0xb0000 0x20>;
+		interrupts = <17>;
+		current-speed = <4800000>;
+		fifo-size = <2048>;
+	};
+};

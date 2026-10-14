@@ -15,6 +15,8 @@ niosv_zephyr/hw/tmp-clearbox/
 niosv_zephyr/hw/*.hex
 niosv_zephyr/hw/build_niosv_system.qpf
 niosv_zephyr/hw/build_niosv_system.qsf
+niosv_zephyr/hw/ip/rpll0/build_rpll0.qpf
+niosv_zephyr/hw/ip/rpll0/build_rpll0.qsf
 niosv_zephyr/hw_*/
 # qsys-generate's top-level pass regenerates every instance itself under an
 # auto-incrementing disambiguation suffix (niosv_zephyr_sys_cb_0.ip,

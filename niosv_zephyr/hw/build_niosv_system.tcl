@@ -15,10 +15,17 @@ set_project_property DEVICE        {A3CY100BM16AE7S}
 set_project_property DEVICE_FAMILY {Agilex 3}
 
 # ---------------------------------------------------------------- clock / reset fanout
-# One external 25 MHz pin, one external reset pin; bridges fan each out to
-# the three sinks below. No PLL yet - 25 MHz is plenty for a first boot.
+# One clock input (rpll0's outclk3) and one reset input; bridges fan each
+# out to the sinks below.
+# The system clock is rpll0's outclk3 (niosv_zephyr_top.vhd): ::cpu_mhz,
+# set by build_all.sh from CPU_CLOCK_MHZ with qsys-script --cmd (default 120
+# MHz) - qsys-script's Tcl does not see environment variables.
+set cpu_hz 120000000
+if {[info exists ::cpu_mhz]} {
+    set cpu_hz [expr {$::cpu_mhz * 1000000}]
+}
 add_instance cb altera_clock_bridge
-set_instance_parameter_value cb EXPLICIT_CLOCK_RATE 25000000.0
+set_instance_parameter_value cb EXPLICIT_CLOCK_RATE [expr {double($cpu_hz)}]
 
 add_instance rb altera_reset_bridge
 set_instance_parameter_value rb ACTIVE_LOW_RESET 1
@@ -34,7 +41,7 @@ set_instance_parameter_value rr0 outputType {Reset Interface}
 
 # ---------------------------------------------------------------- Nios V/g core
 add_instance cpu0 intel_niosv_g
-set_instance_parameter_value cpu0 clockFrequency 25000000.0
+set_instance_parameter_value cpu0 clockFrequency [expr {double($cpu_hz)}]
 set_instance_parameter_value cpu0 dataCacheSize   0
 # 16 KB instruction cache (the largest): Zephyr's code runs from the
 # HyperRAM (XIP, see zephyr_overlays/niosv_g_hyperram_xip.overlay), whose
@@ -66,7 +73,7 @@ add_instance uart0 altera_avalon_jtag_uart
 
 # ---------------------------------------------------------------- HyperRAM bring-up status readback
 # Read-only windows onto hyperram_axi's calibration/debug outputs (wired in
-# niosv_zephyr_top.vhd, synchronised into this 25 MHz domain there - the
+# niosv_zephyr_top.vhd, synchronised into this CPU clock domain there - the
 # core itself runs on the HyperRAM PLL's domain, not this one). No AXI
 # traffic to HyperRAM yet - this phase is electrical/calibration bring-up
 # only, read by a Zephyr/bare-metal test program over the existing JTAG
@@ -111,6 +118,19 @@ set_instance_parameter_value hr_axi ADDR_WIDTH  24
 add_connection cb_hr.out_clk   hr_axi.clk
 add_connection rb_hr.out_reset hr_axi.clk_reset
 
+# ---------------------------------------------------------------- FTDI UART window
+# uart/uart_axi4lite.vhd (in niosv_zephyr_top.vhd) behind an exported
+# AXI4-Lite manager at 0xB0000 - inside peripheral region B (uncached) - in
+# the CPU clock domain (no clock crossing), and its interrupt into the CPU
+# through an IRQ bridge (platform IRQ 1, Zephyr IRQ 17).
+add_instance uart_axi altera_axi_bridge
+set_instance_parameter_value uart_axi AXI_VERSION AXI4-Lite
+set_instance_parameter_value uart_axi DATA_WIDTH  32
+set_instance_parameter_value uart_axi ADDR_WIDTH  8
+
+add_instance uart_irq altera_irq_bridge
+set_instance_parameter_value uart_irq IRQ_WIDTH 1
+
 # ---------------------------------------------------------------- HyperRAM PLL + reconfig
 # rpll0 (the HyperRAM clock PLL) and the emif_io96b_cal bridge it needs
 # for dynamic phase-shift reconfiguration both live OUTSIDE this system
@@ -128,6 +148,8 @@ add_connection cb.out_clk pio_hr_status.clk
 add_connection cb.out_clk pio_hr_debug_lo.clk
 add_connection cb.out_clk pio_hr_debug_hi.clk
 add_connection cb.out_clk pio_hr_timeouts.clk
+add_connection cb.out_clk uart_axi.clk
+add_connection cb.out_clk uart_irq.clk
 
 # ---------------------------------------------------------------- reset fanout
 add_connection rb.out_reset cpu0.reset
@@ -137,6 +159,8 @@ add_connection rb.out_reset pio_hr_status.reset
 add_connection rb.out_reset pio_hr_debug_lo.reset
 add_connection rb.out_reset pio_hr_debug_hi.reset
 add_connection rb.out_reset pio_hr_timeouts.reset
+add_connection rb.out_reset uart_axi.clk_reset
+add_connection rb.out_reset uart_irq.clk_reset
 
 add_connection rr0.ninit_done cpu0.reset
 add_connection rr0.ninit_done ram0.reset1
@@ -145,6 +169,8 @@ add_connection rr0.ninit_done pio_hr_status.reset
 add_connection rr0.ninit_done pio_hr_debug_lo.reset
 add_connection rr0.ninit_done pio_hr_debug_hi.reset
 add_connection rr0.ninit_done pio_hr_timeouts.reset
+add_connection rr0.ninit_done uart_axi.clk_reset
+add_connection rr0.ninit_done uart_irq.clk_reset
 
 # ---------------------------------------------------------------- memory map
 add_connection cpu0.instruction_manager ram0.s1
@@ -165,6 +191,9 @@ add_connection cpu0.data_manager pio_hr_debug_hi.s1
 set_connection_parameter_value cpu0.data_manager/pio_hr_debug_hi.s1 baseAddress 0x000A0020
 add_connection cpu0.data_manager pio_hr_timeouts.s1
 set_connection_parameter_value cpu0.data_manager/pio_hr_timeouts.s1 baseAddress 0x000A0030
+
+add_connection cpu0.data_manager uart_axi.s0
+set_connection_parameter_value cpu0.data_manager/uart_axi.s0 baseAddress 0x000B0000
 
 add_connection cpu0.data_manager hr_axi.s0
 set_connection_parameter_value cpu0.data_manager/hr_axi.s0 baseAddress 0x01000000
@@ -190,6 +219,8 @@ set_connection_parameter_value cpu0.instruction_manager/cpu0.dm_agent baseAddres
 # errors ("Illegal connection start/end") if given the intuitive order.
 add_connection cpu0.platform_irq_rx uart0.irq
 set_connection_parameter_value cpu0.platform_irq_rx/uart0.irq irqNumber 0
+add_connection cpu0.platform_irq_rx uart_irq.sender0_irq
+set_connection_parameter_value cpu0.platform_irq_rx/uart_irq.sender0_irq irqNumber 1
 
 # ---------------------------------------------------------------- system boundary exports
 add_interface clk_in clock sink
@@ -213,5 +244,10 @@ add_interface hr_reset_in reset sink
 set_interface_property hr_reset_in EXPORT_OF rb_hr.in_reset
 add_interface hr_axi axi4lite start
 set_interface_property hr_axi EXPORT_OF hr_axi.m0
+
+add_interface uart_axi axi4lite start
+set_interface_property uart_axi EXPORT_OF uart_axi.m0
+add_interface uart_irq interrupt receiver
+set_interface_property uart_irq EXPORT_OF uart_irq.receiver_irq
 
 save_system {niosv_zephyr_sys.qsys}

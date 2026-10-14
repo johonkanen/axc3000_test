@@ -15,3 +15,13 @@ config AXC3000_HYPERRAM_CALIBRATION_TIMEOUT_MS
 	int "Longest wait for the HyperRAM calibration"
 	default 1000
 	depends on AXC3000_HYPERRAM
+
+config UART_AXC3000
+	bool "AXC3000 UART with FIFOs"
+	default y
+	depends on DT_HAS_AXC3000_UART_FIFO_ENABLED
+	select SERIAL_HAS_DRIVER
+	select SERIAL_SUPPORT_INTERRUPT
+	help
+	  The UART with RX/TX FIFOs of niosv_zephyr/hw/uart/uart_axi4lite.vhd
+	  (the FTDI serial port, up to 4.8 MBaud).

@@ -43,4 +43,11 @@ pll_reconfig = VU.add_library("pll_reconfig_lib")
 pll_reconfig.add_source_files(ROOT / "niosv_zephyr/hw/hyperram_pll_reconfig.vhd")
 pll_reconfig.add_source_files(ROOT / "niosv_zephyr/hw/sim/hyperram_pll_reconfig_tb.vhd")
 
+# UART with RX/TX FIFOs, AXI4-Lite (niosv_zephyr, 4.8 MBaud FTDI serial)
+uart = VU.add_library("uart_lib")
+uart.add_source_files(ROOT / "niosv_zephyr/hw/uart/sync_fifo.vhd")
+uart.add_source_files(ROOT / "niosv_zephyr/hw/uart/uart_serial.vhd")
+uart.add_source_files(ROOT / "niosv_zephyr/hw/uart/uart_axi4lite.vhd")
+uart.add_source_files(ROOT / "niosv_zephyr/hw/sim/uart_axi4lite_tb.vhd")
+
 VU.main()

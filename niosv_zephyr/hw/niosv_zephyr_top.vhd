@@ -16,7 +16,7 @@
 -- registers
 -- (pio_hr_status/_debug_lo/_debug_hi/_timeouts, exported from
 -- niosv_zephyr_sys as hr_status/hr_debug_lo/hr_debug_hi/hr_timeouts), via
--- a plain double-flop synchroniser into the 25 MHz Nios V domain - fine
+-- a plain double-flop synchroniser into the Nios V (cpu_clk) domain - fine
 -- for diagnostics polled by software, not a tight real-time path.
 --
 -- Clocking: ONE PLL (rpll0), instantiated directly here rather than folded
@@ -27,7 +27,7 @@
 -- already uses. A flat .ip (ip/rpll0/rpll0.ip, built from pll_100.ip -
 -- see build_rpll0.tcl), not a Platform Designer "system".
 --
--- Three 100 MHz outputs, all from the 2400 MHz VCO:
+-- Four outputs, all from the 2400 MHz VCO:
 --   outclk0 (C0)  0 deg    hyperram_core's clock, CS#/RESET# and DQ/RWDS
 --                          output registers - never reconfigured
 --   outclk1 (C1)  0 deg    the read clock (DQ/RWDS input DDIO), its phase
@@ -37,6 +37,10 @@
 --                          clock" the core expects) - a static, compile-time
 --                          phase (it does apply: the IP sets C2's Counter
 --                          Preset to 19, 7500 ps), never reconfigured
+--   outclk3 (C3)  CPU_CLOCK_MHZ  niosv_zephyr_sys's clock (Nios V/g, its bus,
+--                          the status PIOs) - build_all.sh's CPU_CLOCK_MHZ,
+--                          default 120 MHz; the system is held in reset until
+--                          the PLL locks
 -- Writing a counter's phase moves only that counter's output.
 --
 -- Reconfiguration path: rpll0's pll_calbus/pll_calbus_readdata ports go
@@ -88,7 +92,11 @@ entity niosv_zephyr_top is
         hr_csn      : out   std_logic;
         hr_resetn   : out   std_logic;
         hr_rwds     : inout std_logic;
-        hr_dq       : inout std_logic_vector(7 downto 0)
+        hr_dq       : inout std_logic_vector(7 downto 0);
+
+        -- FTDI serial port (USB-Blaster UART channel B), up to 4.8 MBaud
+        uart_rxd    : in  std_logic;   -- AG23, board TX -> FPGA RX
+        uart_txd    : out std_logic    -- AG24, FPGA TX -> board RX
     );
 end entity niosv_zephyr_top;
 
@@ -107,13 +115,16 @@ architecture rtl of niosv_zephyr_top is
             pll_calbus_readdata : out std_logic_vector(31 downto 0);
             outclk_0            : out std_logic;
             outclk_1            : out std_logic;
-            outclk_2            : out std_logic
+            outclk_2            : out std_logic;
+            outclk_3            : out std_logic
         );
     end component rpll0;
 
     signal rpll_rst     : std_logic;
     signal rpll_locked : std_logic;
     signal rpll_clk0, rpll_clk1, rpll_clk2 : std_logic;
+    signal cpu_clk       : std_logic;    -- rpll0 outclk3, niosv_zephyr_sys's clock
+    signal sys_reset_n   : std_logic;
     signal hyperram_reset : boolean;
 
     signal rpll_calbus          : std_logic_vector(57 downto 0);
@@ -172,13 +183,24 @@ architecture rtl of niosv_zephyr_top is
     signal r_id      : std_logic_vector(7 downto 0);
     signal r_resp    : std_logic_vector(1 downto 0);
 
+    -- niosv_zephyr_sys's UART window (AXI4-Lite, cpu_clk domain)
+    signal ua_awaddr, ua_araddr : std_logic_vector(7 downto 0);
+    signal ua_awvalid, ua_awready, ua_wvalid, ua_wready : std_logic;
+    signal ua_wdata, ua_rdata : std_logic_vector(31 downto 0);
+    signal ua_wstrb : std_logic_vector(3 downto 0);
+    signal ua_bresp, ua_rresp : std_logic_vector(1 downto 0);
+    signal ua_bvalid, ua_bready, ua_arvalid, ua_arready, ua_rvalid, ua_rready : std_logic;
+    signal uart_irq : std_logic;
+    -- the UART's reset: sys_reset_n, synchronised to cpu_clk
+    signal uart_reset_sync : std_logic_vector(1 downto 0) := "11";
+
     signal hr_status_bits  : std_logic_vector(31 downto 0);
     signal hr_debug_bits   : std_logic_vector(63 downto 0);
     signal hr_timeouts_cnt : unsigned(15 downto 0);
 
-    -- plain double-flop synchronisers, clock_0 domain -> the 25 MHz Nios V
-    -- domain (clk_clk, which cb/rb pass through unchanged). Diagnostics
-    -- only, polled by software - not claiming per-bit atomicity.
+    -- plain double-flop synchronisers, clock_0 domain -> the Nios V domain
+    -- (cpu_clk). Diagnostics only, polled by software - not claiming
+    -- per-bit atomicity.
     signal status_sync_0, status_sync_1       : std_logic_vector(31 downto 0) := (others => '0');
     signal debug_lo_sync_0, debug_lo_sync_1   : std_logic_vector(31 downto 0) := (others => '0');
     signal debug_hi_sync_0, debug_hi_sync_1   : std_logic_vector(31 downto 0) := (others => '0');
@@ -187,6 +209,7 @@ architecture rtl of niosv_zephyr_top is
 begin
 
     rpll_rst       <= not reset_reset_n;
+    sys_reset_n    <= reset_reset_n and rpll_locked;   -- cpu_clk runs only once locked
     hyperram_reset <= (rpll_locked /= '1');
 
     u_rpll : component rpll0
@@ -197,6 +220,7 @@ begin
             outclk_0            => rpll_clk0,
             outclk_1            => rpll_clk1,
             outclk_2            => rpll_clk2,
+            outclk_3            => cpu_clk,
 
             pll_calbus          => rpll_calbus,
             pll_calbus_readdata => rpll_calbus_readdata
@@ -378,9 +402,34 @@ begin
             r_last    => r_last
         );
 
-    sync : process(clk_clk)
+    uart_reset : process(cpu_clk, sys_reset_n)
     begin
-        if rising_edge(clk_clk) then
+        if sys_reset_n = '0' then
+            uart_reset_sync <= "11";
+        elsif rising_edge(cpu_clk) then
+            uart_reset_sync <= uart_reset_sync(0) & '0';
+        end if;
+    end process;
+
+    u_uart : entity work.uart_axi4lite
+        generic map (
+            g_fifo_depth_log2 => 11,     -- 2 KB each way
+            g_bit_time        => 5333    -- reset value; the driver sets it from the clock
+        )
+        port map (
+            clock => cpu_clk, reset => uart_reset_sync(1),
+            awaddr => ua_awaddr, awvalid => ua_awvalid, awready => ua_awready,
+            wdata => ua_wdata, wstrb => ua_wstrb, wvalid => ua_wvalid, wready => ua_wready,
+            bresp => ua_bresp, bvalid => ua_bvalid, bready => ua_bready,
+            araddr => ua_araddr, arvalid => ua_arvalid, arready => ua_arready,
+            rdata => ua_rdata, rresp => ua_rresp, rvalid => ua_rvalid, rready => ua_rready,
+            irq => uart_irq,
+            uart_rxd => uart_rxd, uart_txd => uart_txd
+        );
+
+    sync : process(cpu_clk)
+    begin
+        if rising_edge(cpu_clk) then
             status_sync_0   <= hr_status_bits;
             status_sync_1   <= status_sync_0;
             debug_lo_sync_0 <= hr_debug_bits(31 downto 0);
@@ -394,8 +443,8 @@ begin
 
     u_sys : entity niosv_zephyr_sys.niosv_zephyr_sys
         port map (
-            clk_in_clk       => clk_clk,
-            reset_in_reset_n => reset_reset_n,
+            clk_in_clk       => cpu_clk,
+            reset_in_reset_n => sys_reset_n,
 
             hr_clk_in_clk       => rpll_clk0,
             hr_reset_in_reset_n => rpll_locked,
@@ -418,6 +467,27 @@ begin
             hr_axi_rresp   => hr_rresp,
             hr_axi_rvalid  => hr_rvalid,
             hr_axi_rready  => hr_rready,
+
+            uart_axi_awaddr  => ua_awaddr,
+            uart_axi_awprot  => open,
+            uart_axi_awvalid => ua_awvalid,
+            uart_axi_awready => ua_awready,
+            uart_axi_wdata   => ua_wdata,
+            uart_axi_wstrb   => ua_wstrb,
+            uart_axi_wvalid  => ua_wvalid,
+            uart_axi_wready  => ua_wready,
+            uart_axi_bresp   => ua_bresp,
+            uart_axi_bvalid  => ua_bvalid,
+            uart_axi_bready  => ua_bready,
+            uart_axi_araddr  => ua_araddr,
+            uart_axi_arprot  => open,
+            uart_axi_arvalid => ua_arvalid,
+            uart_axi_arready => ua_arready,
+            uart_axi_rdata   => ua_rdata,
+            uart_axi_rresp   => ua_rresp,
+            uart_axi_rvalid  => ua_rvalid,
+            uart_axi_rready  => ua_rready,
+            uart_irq_irq     => (0 => uart_irq),
 
             hr_status_export   => status_sync_1,
             hr_debug_lo_export => debug_lo_sync_1,

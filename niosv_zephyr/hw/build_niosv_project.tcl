@@ -82,6 +82,9 @@ set_global_assignment -name VHDL_FILE $MEMLIB/hyperram/hyperram_axi.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/hyperram_pins.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/hyperram_axi4lite_bridge.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/hyperram_pll_reconfig.vhd
+set_global_assignment -name VHDL_FILE $this_file_path/uart/sync_fifo.vhd
+set_global_assignment -name VHDL_FILE $this_file_path/uart/uart_serial.vhd
+set_global_assignment -name VHDL_FILE $this_file_path/uart/uart_axi4lite.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/niosv_zephyr_top.vhd
 
 # ------------------------------------------------------------------- IP
@@ -100,7 +103,7 @@ set_global_assignment -name QIP_FILE $this_file_path/niosv_zephyr_sys/niosv_zeph
 # before every regenerate, so exactly one match per instance is expected.
 # Exact instance name plus an optional numeric suffix only - a bare
 # ${inst}* glob would also match cb_hr when looking for cb.
-foreach inst {cb cpu0 ram0 rb rr0 uart0 pio_hr_status pio_hr_debug_lo pio_hr_debug_hi pio_hr_timeouts cb_hr rb_hr hr_axi} {
+foreach inst {cb cpu0 ram0 rb rr0 uart0 pio_hr_status pio_hr_debug_lo pio_hr_debug_hi pio_hr_timeouts cb_hr rb_hr hr_axi uart_axi uart_irq} {
     set matches {}
     foreach q [glob -nocomplain $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_${inst}*/niosv_zephyr_sys_${inst}*.qip] {
         if {[regexp "^niosv_zephyr_sys_${inst}(_\\d+)?\\.qip\$" [file tail $q]]} {
@@ -186,6 +189,15 @@ set_instance_assignment -name IO_STANDARD "1.3-V LVCMOS" -to hr_dq[4]
 set_instance_assignment -name IO_STANDARD "1.3-V LVCMOS" -to hr_dq[5]
 set_instance_assignment -name IO_STANDARD "1.3-V LVCMOS" -to hr_dq[6]
 set_instance_assignment -name IO_STANDARD "1.3-V LVCMOS" -to hr_dq[7]
+
+# FTDI serial port (USB-Blaster UART channel B: BDBUS0/1) - same pins and
+# settings as the repo-root uart_bringup design, see docs/mkr_pinout.md
+set_location_assignment PIN_AG23 -to uart_rxd -comment IOBANK_5A
+set_location_assignment PIN_AG24 -to uart_txd -comment IOBANK_5A
+set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to uart_rxd
+set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to uart_txd
+set_instance_assignment -name CURRENT_STRENGTH_NEW 6MA -to uart_txd
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to uart_rxd   ;# idle high if undriven
 
 
 # --------------------------------------------------------------- commit
