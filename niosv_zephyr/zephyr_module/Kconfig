@@ -19,9 +19,40 @@ config AXC3000_HYPERRAM_CALIBRATION_TIMEOUT_MS
 config UART_AXC3000
 	bool "AXC3000 UART with FIFOs"
 	default y
-	depends on DT_HAS_AXC3000_UART_FIFO_ENABLED
+	depends on SERIAL && DT_HAS_AXC3000_UART_FIFO_ENABLED
 	select SERIAL_HAS_DRIVER
 	select SERIAL_SUPPORT_INTERRUPT
 	help
 	  The UART with RX/TX FIFOs of niosv_zephyr/hw/uart/uart_axi4lite.vhd
 	  (the FTDI serial port, up to 4.8 MBaud).
+
+config FLASH_AXC3000_SDM_QSPI
+	bool "AXC3000 QSPI configuration flash through the SDM mailbox"
+	default y
+	depends on FLASH && DT_HAS_AXC3000_SDM_QSPI_ENABLED
+	select FLASH_HAS_DRIVER_ENABLED
+	select FLASH_HAS_EXPLICIT_ERASE
+	select FLASH_HAS_PAGE_LAYOUT
+	help
+	  The board's QSPI flash through the Mailbox Client IP
+	  (niosv_zephyr/hw mbox0, 0xC0000): read, write, erase.
+
+config UART_AXC3000_JTAG
+	bool "JTAG UART console that does not hang without a host"
+	default y
+	depends on SERIAL && DT_HAS_AXC3000_JTAG_UART_ENABLED
+	select SERIAL_HAS_DRIVER
+	help
+	  Replaces Zephyr's altr,jtag-uart driver (which waits for FIFO room
+	  with interrupts locked and no timeout): drops characters while no
+	  host reads the JTAG UART. The board overlay sets uart0's compatible
+	  to axc3000,jtag-uart.
+
+config AXC3000_SDM_REBOOT
+	bool "Reboot by reconfiguring the FPGA from the running bitstream"
+	default y
+	depends on FLASH_AXC3000_SDM_QSPI && REBOOT
+	help
+	  sys_reboot() asks the SDM to reconfigure the device from the
+	  bitstream image that is running (RSU), which reloads MCUboot into the
+	  on-chip RAM - the application overwrites it there.

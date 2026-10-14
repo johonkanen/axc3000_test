@@ -1,0 +1,21 @@
+/*
+ * The board's 32 MB QSPI configuration flash, through the SDM mailbox
+ * (niosv_zephyr/hw mbox0 at 0xC0000, platform interrupt 2 = 18, not used by
+ * the polled driver). Partitions are added by the overlays that use them.
+ */
+
+&{/soc} {
+	qspi: flash-controller@c0000 {
+		compatible = "axc3000,sdm-qspi";
+		reg = <0xc0000 0x40>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		flash0: flash@0 {
+			compatible = "soc-nv-flash";
+			reg = <0x0 0x2000000>;        /* 32 MB */
+			erase-block-size = <4096>;
+			write-block-size = <4>;
+		};
+	};
+};

@@ -12,6 +12,15 @@ cmake_minimum_required(VERSION 3.20.0)
 
 set(NIOSV_ZEPHYR ${CMAKE_CURRENT_LIST_DIR}/../..)
 include(${CMAKE_CURRENT_LIST_DIR}/../niosv_cpu_clock.cmake)    # -DNIOSV_CPU_HZ=..., default 120 MHz
+# -DHYPERRAM_MCUBOOT=1: XIP, and an MCUboot RAM-load image - sign it with
+# ../../mcuboot/sign_app.sh build_dir, then upload over the FTDI UART
+if(HYPERRAM_MCUBOOT)
+  set(HYPERRAM_XIP 1)
+  list(APPEND EXTRA_CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/../../mcuboot/app_ram_load.conf)
+  list(APPEND EXTRA_DTC_OVERLAY_FILE
+       ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_sdm_qspi.overlay
+       ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_flash_layout.overlay)
+endif()
 if(HYPERRAM_XIP)
   list(APPEND EXTRA_DTC_OVERLAY_FILE ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_hyperram_xip.overlay)
   list(APPEND EXTRA_CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/xip.conf)

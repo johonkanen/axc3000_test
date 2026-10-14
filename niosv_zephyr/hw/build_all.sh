@@ -51,7 +51,7 @@ rm -rf niosv_zephyr_sys.qsys niosv_zephyr_sys ip/niosv_zephyr_sys/niosv_zephyr_s
        ip/emif_cal/ip/emif_cal/emif_cal_cal0_*/ ip/emif_cal/ip/emif_cal/emif_cal_cal0_[0-9]*.ip \
        ip/emif_cal/dni ip/emif_cal/qdb ip/emif_cal/db ip/emif_cal/incremental_db \
        ip/hr_gpio/hr_dq_io ip/hr_gpio/hr_ck_io \
-       ip/rpll0/build_rpll0.qpf ip/rpll0/build_rpll0.qsf \
+       ip/rpll0/build_rpll0.qpf ip/rpll0/build_rpll0.qsf bake_hex_into_ram.qpf bake_hex_into_ram.qsf \
        output_files db incremental_db dni qdb *.qws *.qpf *.qsf
 
 export CPU_CLOCK_MHZ="${CPU_CLOCK_MHZ:-120}"   # 150 also closes, by 0.1 ns; 200 fails
@@ -59,6 +59,23 @@ echo "CPU clock: $CPU_CLOCK_MHZ MHz"
 
 step "qsys-script: build the Platform Designer system"
 qsys-script --cmd="set ::cpu_mhz $CPU_CLOCK_MHZ" --script=build_niosv_system.tcl
+
+# MCUboot in ram0's initial contents, so the bitstream boots into it
+# (mcuboot/build_mcuboot.sh builds it). MCUBOOT_ELF= (empty) leaves ram0 blank.
+MCUBOOT_ELF="${MCUBOOT_ELF-$HERE/../zephyr/build_mcuboot/zephyr/zephyr.elf}"
+if [ -n "$MCUBOOT_ELF" ]; then
+    if [ ! -f "$MCUBOOT_ELF" ]; then
+        echo "ERROR: MCUBOOT_ELF $MCUBOOT_ELF not found (mcuboot/build_mcuboot.sh, or MCUBOOT_ELF= for none)" >&2
+        exit 1
+    fi
+    step "MCUboot into ram0's initial contents ($MCUBOOT_ELF)"
+    mkdir -p output_files
+    QUARTUS_ROOTDIR="$HOME/altera_pro/26.1.1/quartus" \
+    "$HOME/altera_pro/26.1.1/niosv/bin/elf2hex" -i "$MCUBOOT_ELF" -o "$HERE/output_files/mcuboot.hex" \
+        -b 0x0 -e 0x3FFFF -w 32 -r 4 --little-endian-mem
+    qsys-script --system-file=niosv_zephyr_sys.qsys --cmd="set HEX_FILE $HERE/output_files/mcuboot.hex" \
+        --script=bake_hex_into_ram.tcl
+fi
 
 step "qsys-generate: the top system (regenerates every instance itself)"
 qsys-generate niosv_zephyr_sys.qsys --synthesis=VHDL --part=A3CY100BM16AE7S

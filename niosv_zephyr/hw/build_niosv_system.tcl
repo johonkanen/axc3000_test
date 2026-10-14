@@ -131,6 +131,13 @@ set_instance_parameter_value uart_axi ADDR_WIDTH  8
 add_instance uart_irq altera_irq_bridge
 set_instance_parameter_value uart_irq IRQ_WIDTH 1
 
+# ---------------------------------------------------------------- SDM mailbox (QSPI flash)
+# The configuration QSPI flash belongs to the SDM; the FPGA reaches it only
+# through SDM mailbox commands (QSPI_OPEN/READ/WRITE/ERASE/CLOSE, and the
+# RSU commands). At 0xC0000, inside peripheral region B (uncached), platform
+# IRQ 2 (Zephyr IRQ 18). Same parameters as Arrow's niosv_qspi_hyperram_refdes.
+add_instance mbox0 intel_mailbox_client
+
 # ---------------------------------------------------------------- HyperRAM PLL + reconfig
 # rpll0 (the HyperRAM clock PLL) and the emif_io96b_cal bridge it needs
 # for dynamic phase-shift reconfiguration both live OUTSIDE this system
@@ -150,6 +157,7 @@ add_connection cb.out_clk pio_hr_debug_hi.clk
 add_connection cb.out_clk pio_hr_timeouts.clk
 add_connection cb.out_clk uart_axi.clk
 add_connection cb.out_clk uart_irq.clk
+add_connection cb.out_clk mbox0.in_clk
 
 # ---------------------------------------------------------------- reset fanout
 add_connection rb.out_reset cpu0.reset
@@ -161,6 +169,7 @@ add_connection rb.out_reset pio_hr_debug_hi.reset
 add_connection rb.out_reset pio_hr_timeouts.reset
 add_connection rb.out_reset uart_axi.clk_reset
 add_connection rb.out_reset uart_irq.clk_reset
+add_connection rb.out_reset mbox0.in_reset
 
 add_connection rr0.ninit_done cpu0.reset
 add_connection rr0.ninit_done ram0.reset1
@@ -171,6 +180,7 @@ add_connection rr0.ninit_done pio_hr_debug_hi.reset
 add_connection rr0.ninit_done pio_hr_timeouts.reset
 add_connection rr0.ninit_done uart_axi.clk_reset
 add_connection rr0.ninit_done uart_irq.clk_reset
+add_connection rr0.ninit_done mbox0.in_reset
 
 # ---------------------------------------------------------------- memory map
 add_connection cpu0.instruction_manager ram0.s1
@@ -191,6 +201,9 @@ add_connection cpu0.data_manager pio_hr_debug_hi.s1
 set_connection_parameter_value cpu0.data_manager/pio_hr_debug_hi.s1 baseAddress 0x000A0020
 add_connection cpu0.data_manager pio_hr_timeouts.s1
 set_connection_parameter_value cpu0.data_manager/pio_hr_timeouts.s1 baseAddress 0x000A0030
+
+add_connection cpu0.data_manager mbox0.avmm
+set_connection_parameter_value cpu0.data_manager/mbox0.avmm baseAddress 0x000C0000
 
 add_connection cpu0.data_manager uart_axi.s0
 set_connection_parameter_value cpu0.data_manager/uart_axi.s0 baseAddress 0x000B0000
@@ -221,6 +234,8 @@ add_connection cpu0.platform_irq_rx uart0.irq
 set_connection_parameter_value cpu0.platform_irq_rx/uart0.irq irqNumber 0
 add_connection cpu0.platform_irq_rx uart_irq.sender0_irq
 set_connection_parameter_value cpu0.platform_irq_rx/uart_irq.sender0_irq irqNumber 1
+add_connection cpu0.platform_irq_rx mbox0.irq
+set_connection_parameter_value cpu0.platform_irq_rx/mbox0.irq irqNumber 2
 
 # ---------------------------------------------------------------- system boundary exports
 add_interface clk_in clock sink

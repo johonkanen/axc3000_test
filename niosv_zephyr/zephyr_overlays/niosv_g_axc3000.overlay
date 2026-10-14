@@ -1,0 +1,20 @@
+/*
+ * niosv_zephyr/hw's Nios V/g, for every build (apps/niosv_cpu_clock.cmake
+ * and mcuboot/build_mcuboot.sh add it; the clock-frequency comes separately,
+ * from NIOSV_CPU_HZ):
+ *
+ * - its real instruction set, RV32IM: no "a" (misa reads 0x40001100). The
+ *   stock niosv_g devicetree lists "a", and Zephyr's atomics then compile to
+ *   amo* instructions this core traps as illegal.
+ * - the JTAG UART console through zephyr_module's driver, which drops
+ *   characters while no host reads it - Zephyr's own waits for FIFO room with
+ *   interrupts locked and no timeout, hanging a board that boots on its own.
+ */
+
+&cpu0 {
+	riscv,isa-extensions = "i", "m", "zicsr", "zifencei";
+};
+
+&uart0 {
+	compatible = "axc3000,jtag-uart";
+};

@@ -1,0 +1,13 @@
+/*
+ * MCUboot on the AXC3000 Nios V/g: runs from on-chip RAM, finds the
+ * application in the QSPI flash's slots (through the SDM mailbox), copies the
+ * newest valid one into the HyperRAM (RAM-load) and starts it; serial
+ * recovery (mcumgr / SMP) on the 4.8 MBaud FTDI UART.
+ */
+
+/ {
+	chosen {
+		zephyr,flash-controller = &qspi;
+		zephyr,uart-mcumgr = &uart1;
+	};
+};

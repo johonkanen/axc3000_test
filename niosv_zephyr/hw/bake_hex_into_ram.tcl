@@ -28,7 +28,14 @@ set_component_parameter_value useNonDefaultInitFile {1}
 # "No such file .../ip/altera/intel_onchip_memory/hello_world.hex"
 # otherwise, even though generation still reports success.
 set_component_parameter_value abs_path {1}
-set_component_parameter_value initializationFileName [pwd]/$HEX_FILE
+# relative to the working directory, or absolute (build_all.sh passes one) -
+# no [file normalize]: qsys-script's Tcl does not implement it
+if {[string equal [string index $HEX_FILE 0] "/"]} {
+    set hex_path $HEX_FILE
+} else {
+    set hex_path [pwd]/$HEX_FILE
+}
+set_component_parameter_value initializationFileName $hex_path
 set_component_parameter_value copyInitFile {1}
 save_component
 

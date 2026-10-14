@@ -67,6 +67,11 @@ if {[info exists ::env(NUM_PARALLEL_PROCESSORS)]} {
 # AXC3000 configuration scheme (matches the repo-root uart_bringup build)
 set_global_assignment -name USE_CONF_DONE SDM_IO16
 set_global_assignment -name USE_INIT_DONE SDM_IO0
+# The board's QSPI configuration flash (Active Serial x4, the default
+# scheme), reached at run time through the SDM mailbox (mbox0) - clocks as
+# in Arrow's niosv_qspi_hyperram_refdes
+set_global_assignment -name ACTIVE_SERIAL_CLOCK AS_FREQ_25MHZ
+set_global_assignment -name DEVICE_INITIALIZATION_CLOCK OSC_CLK_1_25MHZ
 
 # ------------------------------------------------------------ source set
 # hyperram_axi's own dependencies, in compile order (package before body):
@@ -103,7 +108,7 @@ set_global_assignment -name QIP_FILE $this_file_path/niosv_zephyr_sys/niosv_zeph
 # before every regenerate, so exactly one match per instance is expected.
 # Exact instance name plus an optional numeric suffix only - a bare
 # ${inst}* glob would also match cb_hr when looking for cb.
-foreach inst {cb cpu0 ram0 rb rr0 uart0 pio_hr_status pio_hr_debug_lo pio_hr_debug_hi pio_hr_timeouts cb_hr rb_hr hr_axi uart_axi uart_irq} {
+foreach inst {cb cpu0 ram0 rb rr0 uart0 pio_hr_status pio_hr_debug_lo pio_hr_debug_hi pio_hr_timeouts cb_hr rb_hr hr_axi uart_axi uart_irq mbox0} {
     set matches {}
     foreach q [glob -nocomplain $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_${inst}*/niosv_zephyr_sys_${inst}*.qip] {
         if {[regexp "^niosv_zephyr_sys_${inst}(_\\d+)?\\.qip\$" [file tail $q]]} {

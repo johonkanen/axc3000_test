@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  The Altera JTAG UART as a console that drops characters while no host
+  reads it, instead of hanging (zephyr_module/drivers/serial/
+  uart_axc3000_jtag.c). Polled only.
+
+compatible: "axc3000,jtag-uart"
+
+include: uart-controller.yaml
+
+properties:
+  reg:
+    required: true

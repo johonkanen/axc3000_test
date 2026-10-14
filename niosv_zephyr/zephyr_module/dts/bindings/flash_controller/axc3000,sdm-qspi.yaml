@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  The AXC3000's QSPI configuration flash, reached through the SDM mailbox
+  (the Mailbox Client IP at reg). Its child "flash@0" (soc-nv-flash) gives
+  the flash size and holds the partitions.
+
+compatible: "axc3000,sdm-qspi"
+
+include: flash-controller.yaml

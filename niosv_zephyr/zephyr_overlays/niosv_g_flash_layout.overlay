@@ -1,0 +1,62 @@
+/*
+ * The 32 MB QSPI configuration flash's layout (needs niosv_g_sdm_qspi.overlay).
+ * The SDM's areas follow the RSU programming file (hw/flash/initial_image.pfg):
+ * never written by Zephyr except through RSU (P1/P2). The MCUboot slots hold
+ * the Zephyr application (RAM-load into the HyperRAM).
+ *
+ *   0x0000000        BOOT_INFO       SDM firmware, decision firmware (RSU: to 0x20FFFF)
+ *   0x0210000        FACTORY_IMAGE   the factory bitstream (with MCUboot inside)
+ *   0x0600000        SPT0/1, CPB0/1  RSU tables (4 x 64 KB)
+ *   0x0800000  4 MB  P1              RSU application bitstream
+ *   0x0C00000  4 MB  P2              RSU application bitstream
+ *   0x1000000  4 MB  MCUboot slot 0  Zephyr application
+ *   0x1400000  4 MB  MCUboot slot 1  Zephyr application (the update)
+ *   0x1800000        free (0x1FF0000: apps/flash_test's scratch block)
+ */
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		sdm_boot_partition: partition@0 {
+			label = "sdm-boot";
+			reg = <0x0000000 0x0210000>;
+			read-only;
+		};
+		/* MCUboot lives inside the factory bitstream (on-chip RAM
+		 * contents), so its boot_partition is this one
+		 */
+		boot_partition: factory_partition: partition@210000 {
+			label = "rsu-factory";
+			reg = <0x0210000 0x03f0000>;
+			read-only;
+		};
+		rsu_tables_partition: partition@600000 {
+			label = "rsu-tables";
+			reg = <0x0600000 0x0200000>;
+			read-only;
+		};
+		rsu_p1_partition: partition@800000 {
+			label = "rsu-p1";
+			reg = <0x0800000 0x0400000>;
+		};
+		rsu_p2_partition: partition@c00000 {
+			label = "rsu-p2";
+			reg = <0x0c00000 0x0400000>;
+		};
+		slot0_partition: partition@1000000 {
+			label = "image-0";
+			reg = <0x1000000 0x0400000>;
+		};
+		slot1_partition: partition@1400000 {
+			label = "image-1";
+			reg = <0x1400000 0x0400000>;
+		};
+		scratch_partition: partition@1800000 {
+			label = "free";
+			reg = <0x1800000 0x0800000>;
+		};
+	};
+};
