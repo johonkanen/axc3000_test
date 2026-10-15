@@ -144,7 +144,7 @@ MCUboot (on-chip RAM), which then boots the app from its flash slots as
 before. The library is Altera's uniLibRSU (`zephyr_module/lib/unilibrsu`); its
 flash layer refuses writes outside the RSU tables and P1/P2.
 
-## 9. Partial reconfiguration demo (not run on hardware yet)
+## 9. Partial reconfiguration demo
 
 ```
 cd hw && PR_DEMO=1 ./build_all.sh && pr/build_personas.sh && cd ..   # ~7 + ~4 min

@@ -338,7 +338,12 @@ static int rsu_mgmt_pr(struct smp_streamer *ctxt)
 
 		step = 2;
 		/* all of it even after an error: the PR IP user guide's recovery
-		 * (Agilex) drains the rest of the bitstream before a retry
+		 * (Agilex) drains the rest of the bitstream before a retry.
+		 * But a damaged image (one with a valid CRC: corrupted before
+		 * the upload) makes the SDM stop taking data, and the store
+		 * below then waits forever - the CPU hangs until the FPGA is
+		 * reconfigured (seen on the board). A real design needs a
+		 * timeout in front of the data port.
 		 */
 		for (uint32_t i = 0; i < n; i++) {
 			*PR_DATA = w[i];

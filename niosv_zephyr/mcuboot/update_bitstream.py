@@ -162,8 +162,11 @@ async def main():
                                    baudrate=a.baudrate,
                                    max_smp_encoded_frame_size=line_length * line_buffers)
     async with SMPClient(transport, a.port, timeout_s=60) as client:
-        st = check(await client.request(StatusRequest()), "status")
-        show(st)
+        # not for pr: it needs no RSU, and libRSU has no status to report on
+        # an FPGA configured over JTAG
+        if a.cmd != "pr":
+            st = check(await client.request(StatusRequest()), "status")
+            show(st)
         if a.cmd == "status":
             return
         if a.cmd == "load":

@@ -233,10 +233,11 @@ static region means rebuilding the base and then every persona.
 - `new_variant.sh` copies only tracked files: untracked `pr/` must be copied
   by hand until it is committed.
 
-**Runtime path** (built, **not run on hardware yet** - the board is in use):
+**Runtime path:**
 - `pio_pr_ctrl` (`0xA0040`): bit 0 freezes the region's outputs (LEDs held
   off), bit 1 resets it; synchronised to its 25 MHz clock in
-  `niosv_zephyr_top.vhd`.
+  `niosv_zephyr_top.vhd`. The AXC3000's RGB LED is active low (`g_led_on
+  '0'`).
 - `rsu_mgmt` command 4 (`CONFIG_AXC3000_PR_MGMT`, app built with
   `-DPR_DEMO=1`, overlay `zephyr_overlays/niosv_g_pr.overlay`): the image is
   uploaded with the RSU upload command into HyperRAM. Then:
@@ -245,16 +246,38 @@ static region means rebuilding the base and then every persona.
   3. write every word to the data register (back-pressured);
   4. wait for status 3 (done);
   5. release reset, then freeze.
+- Host: `niosv_zephyr/mcuboot/update_bitstream.py pr <persona>.rbf`.
+- JTAG: `quartus_pgm -c 1 -m jtag --pr <persona>.rbf`.
 
-  On an error, it streams the rest anyway (the user guide's recovery) and
-  leaves the region frozen.
-- Host: `niosv_zephyr/mcuboot/update_bitstream.py pr
-  hw/output_files/impl_green.blinker.rbf`. For the first hardware test,
-  `quartus_pgm` over JTAG with the `.rbf` is the quicker check.
-- Open: the PR time itself (the IP's cycle counters, words 5-A, will give
-  it); whether the base `.sof`'s own persona file (`niosv_zephyr.blinker.rbf`)
-  switches back to blue; the LED polarity (`g_led_on`).
+**Tested on the board (2026-10-15):**
 
+| Test | Result |
+|---|---|
+| Base `.sof` over JTAG | blue blinks |
+| `quartus_pgm --pr impl_green.blinker.rbf` | green blinks, 1.4 s for the programmer run |
+| `update_bitstream.py pr` over the 12 MBaud UART, green <-> blue | 6 of 6 switches, **59-60 ms** of PR on the board, 2.9 s in all (upload 138 kB/s) |
+| The static region during PR | keeps running: the Nios V app that drives the PR answers right after it |
+
+315 KB in 60 ms is 5.3 MB/s; the CPU loop reading the image from HyperRAM
+probably sets that, not the SDM.
+
+**A damaged persona hangs the CPU.** A copy of the green persona with 64
+bytes inverted in the middle (valid transfer CRC) made the SDM stop taking
+data. The PR controller back-pressures the CPU's store to its data register
+without limit, so the Nios V hung: OpenOCD could not even halt it. Only a
+full reconfiguration recovered it (afterwards PR worked again). The UG's
+"keep writing to drain" recovery cannot happen with a stalled bus.
+`quartus_pgm` checks the bitstream's integrity on the PC first and refuses
+such a file ("Fail to check bitstream integrity"); the board does not.
+
+Constraints for the control card:
+- Put a timeout in front of the PR data port: a small VHDL FIFO or bridge
+  with a CPU-visible ready level, or a wait-request watchdog.
+- Never let the CPU's own bus stall on the SDM.
+- Check the persona before PR: a signature or hash made at build time, and
+  its match to the running base revision.
+
+## What this means for this project
 ## What this means for this project
 
 - **PR path:** the Partial Reconfiguration Controller IP, not our Mailbox

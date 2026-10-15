@@ -86,8 +86,8 @@ entity niosv_zephyr_top is
         -- PR_DEMO=1 (build_all.sh): the reconfigurable LED blinker region
         -- (hw/pr/); without it the LEDs are held off
         g_pr_demo : boolean := false;
-        -- the level that lights the RGB LED (not documented for the AXC3000)
-        g_led_on  : std_logic := '1'
+        -- the level that lights the RGB LED: active low (seen on the board)
+        g_led_on  : std_logic := '0'
     );
     port (
         clk_clk       : in std_logic;  -- 25 MHz board oscillator, pin A7
