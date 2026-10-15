@@ -3,7 +3,7 @@
 zephyr_include_directories(include)
 
 if(CONFIG_AXC3000_HYPERRAM OR CONFIG_UART_AXC3000 OR CONFIG_UART_AXC3000_JTAG OR CONFIG_FLASH_AXC3000_SDM_QSPI
-   OR CONFIG_AXC3000_WARM_REBOOT OR CONFIG_AXC3000_HYPERRAM_WAIT)
+   OR CONFIG_AXC3000_WARM_REBOOT OR CONFIG_AXC3000_HYPERRAM_WAIT OR CONFIG_AXC3000_NIOSV_CACHE)
   zephyr_library_named(axc3000)
   zephyr_library_sources_ifdef(CONFIG_AXC3000_HYPERRAM src/hyperram.c)
   zephyr_library_sources_ifdef(CONFIG_AXC3000_HYPERRAM_WAIT src/hyperram_wait.c)
@@ -11,6 +11,7 @@ if(CONFIG_AXC3000_HYPERRAM OR CONFIG_UART_AXC3000 OR CONFIG_UART_AXC3000_JTAG OR
   zephyr_library_sources_ifdef(CONFIG_UART_AXC3000_JTAG drivers/serial/uart_axc3000_jtag.c)
   zephyr_library_sources_ifdef(CONFIG_FLASH_AXC3000_SDM_QSPI drivers/flash/flash_axc3000_sdm_qspi.c)
   zephyr_library_sources_ifdef(CONFIG_AXC3000_WARM_REBOOT src/warm_reboot.c)
+  zephyr_library_sources_ifdef(CONFIG_AXC3000_NIOSV_CACHE drivers/cache/cache_niosv.c)
 endif()
 
 # Altera's uniLibRSU (MIT-0, lib/unilibrsu/README.md), on the QSPI flash

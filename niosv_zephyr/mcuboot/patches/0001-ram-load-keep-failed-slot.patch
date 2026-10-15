@@ -37,3 +37,24 @@ index 6edb298e..bda5ba25 100644
                  state->slot_usage[BOOT_CURR_IMG(state)].slot_available[active_slot] = false;
                  state->slot_usage[BOOT_CURR_IMG(state)].active_slot = BOOT_SLOT_NONE;
                  continue;
+diff --git a/boot/zephyr/main.c b/boot/zephyr/main.c
+index 53cb3c8c..10b36eba 100644
+--- a/boot/zephyr/main.c
++++ b/boot/zephyr/main.c
+@@ -419,6 +419,16 @@ static void do_boot(struct boot_rsp *rsp)
+ 
+     /* Lock interrupts and dive into the entry point */
+     irq_lock();
++#if defined(CONFIG_CACHE_MANAGEMENT) && defined(CONFIG_DCACHE)
++    /* AXC3000: the image was copied (RAM load) through a write-back data
++     * cache - into memory with it before the instructions are fetched
++     * (niosv_zephyr/mcuboot/patches/0001-ram-load-keep-failed-slot.patch)
++     */
++    (void)sys_cache_data_flush_all();
++#endif
++#if defined(CONFIG_CACHE_MANAGEMENT) && defined(CONFIG_ICACHE)
++    (void)sys_cache_instr_invd_all();
++#endif
+     ((void (*)(void))start)();
+ }
+ #endif

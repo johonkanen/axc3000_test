@@ -83,6 +83,26 @@ config AXC3000_WARM_REBOOT
 	  reset - then jumps back to it instead of reconfiguring the FPGA
 	  (src/warm_reboot.c). Cold reboots still reconfigure.
 
+config AXC3000_NIOSV_CACHE
+	bool "Nios V/g data cache (a hardware variant with dataCacheSize > 0)"
+	select CPU_HAS_DCACHE
+	select CPU_HAS_ICACHE
+	select SOC_PREP_HOOK
+	help
+	  The Nios V/g caches for Zephyr's cache API (drivers/cache/
+	  cache_niosv.c; also set CONFIG_EXTERNAL_CACHE=y and
+	  CONFIG_CACHE_MANAGEMENT=y): the write-back data cache flushed or
+	  invalidated by index (the whole cache) or address (Zicbom), the
+	  instruction cache invalidated with fence.i. Flushes the data cache
+	  at the start (soc_prep_hook) and before a warm reboot.
+
+config AXC3000_NIOSV_DCACHE_SIZE
+	int "Nios V/g data cache size (bytes)"
+	default 8192
+	depends on AXC3000_NIOSV_CACHE
+	help
+	  cpu0's dataCacheSize in hw/build_niosv_system.tcl.
+
 config AXC3000_LIBRSU
 	bool "Altera's uniLibRSU (Remote System Update) on the QSPI flash"
 	depends on FLASH_AXC3000_SDM_QSPI

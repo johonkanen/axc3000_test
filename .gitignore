@@ -4,6 +4,7 @@ qdb/
 db/
 incremental_db/
 output_files/
+output_files_*/
 *.qdf
 uart_bringup.qsf
 uart_bringup.qpf

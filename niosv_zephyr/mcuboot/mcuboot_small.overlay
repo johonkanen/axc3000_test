@@ -1,0 +1,24 @@
+/*
+ * MCUboot for the small on-chip RAM variant (niosv_g_small_ocram.conf; use
+ * instead of mcuboot.overlay): its code and .data's initial values in the
+ * 64 KB "ROM" at 0 of the on-chip RAM (XIP, intact for a warm reboot), its
+ * RAM in the HyperRAM at 0x01F00000 (below the calibration's area at the
+ * top), behind the data cache. The application is RAM-loaded to 0x01000000
+ * as before.
+ */
+&sram0 {
+	reg = <0x01f00000 0x000ff000>;
+};
+
+/ {
+	chosen {
+		zephyr,flash = &mcuboot_rom;
+		zephyr,flash-controller = &qspi;
+		zephyr,uart-mcumgr = &uart1;
+	};
+
+	mcuboot_rom: memory@0 {
+		compatible = "soc-nv-flash";
+		reg = <0x0 0x10000>;
+	};
+};

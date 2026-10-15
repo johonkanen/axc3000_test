@@ -1,0 +1,35 @@
+/*
+ * The small on-chip RAM variant (niosv_g_small_ocram.conf) of
+ * niosv_g_hyperram_xip.overlay: everything of the application is in the
+ * HyperRAM, behind the 8 KB data cache (as on the ti60's Sapphire SoC):
+ *
+ *   0x01000000  8 MB  code ("flash", MCUboot RAM-loads the image here)
+ *   0x01800000  1 MB  sram0: .data, .bss, stacks, the kernel
+ *   0x01900000  6 MB  the 'hyperram' region: HYPERRAM_SECTION, hyperram_heap
+ *   0x01F00000        MCUboot's RAM (mcuboot_small.overlay) - not used here
+ *   0x01FFFF80        the HyperRAM calibration's area (hyperram_core)
+ *
+ * The on-chip RAM keeps only MCUboot's "ROM" (0-0xFFFF) and the boot
+ * information (niosv_g_bootinfo_small.overlay).
+ */
+
+&sram0 {
+	reg = <0x01800000 0x00100000>;
+};
+
+/ {
+	chosen {
+		zephyr,flash = &hyperram_code;
+	};
+
+	hyperram_code: memory@1000000 {
+		compatible = "soc-nv-flash";
+		reg = <0x01000000 0x00800000>;	/* 8 MB */
+	};
+
+	hyperram: memory@1900000 {
+		compatible = "zephyr,memory-region";
+		reg = <0x01900000 0x00600000>;	/* 6 MB */
+		zephyr,memory-region = "HYPERRAM";
+	};
+};

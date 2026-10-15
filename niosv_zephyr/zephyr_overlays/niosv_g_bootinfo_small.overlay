@@ -1,0 +1,46 @@
+/*
+ * The small on-chip RAM variant (hw: ram0 68 KB, an 8 KB data cache - see
+ * niosv_g_small_ocram.conf) of niosv_g_bootinfo.overlay: the MCUboot ->
+ * application boot information (256 bytes) and the warm-reboot boot flags
+ * (16 bytes) right above MCUboot's 64 KB "ROM", at 0x10000 and 0x10100.
+ * Use instead of niosv_g_bootinfo.overlay, in MCUboot and the application.
+ */
+
+/ {
+	sram@10000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x10000 0x100>;
+		ranges = <0x0 0x10000 0x100>;
+		zephyr,memory-region = "RetainedMem";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		retainedmem {
+			compatible = "zephyr,retained-ram";
+			ranges;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			boot_info0: boot_info@0 {
+				compatible = "zephyr,retention";
+				reg = <0x0 0x100>;
+			};
+		};
+	};
+
+	axc3000_boot_flags: memory@10100 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x10100 0x10>;
+		zephyr,memory-region = "BootFlags";
+	};
+
+	chosen {
+		zephyr,bootloader-info = &boot_info0;
+	};
+};
+
+/* the caches' line size, for Zephyr's cache API (zephyr_module cache_niosv.c) */
+&cpu0 {
+	d-cache-line-size = <32>;
+	i-cache-line-size = <32>;
+};

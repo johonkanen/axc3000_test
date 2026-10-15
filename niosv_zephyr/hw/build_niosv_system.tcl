@@ -40,13 +40,37 @@ add_instance rr0 intel_user_rst_clkgate
 set_instance_parameter_value rr0 outputType {Reset Interface}
 
 # ---------------------------------------------------------------- Nios V/g core
+# Options from build_all.sh (qsys-script --cmd: its Tcl sees no environment):
+#   ::small_ocram 1   SMALL_OCRAM=1 - an 8 KB data cache and a 68 KB ram0:
+#                     MCUboot's XIP "ROM" (64 KB) + boot information/flags;
+#                     every program's data in the HyperRAM behind the cache
+#                     (zephyr_overlays/*_small.overlay, niosv_g_small_ocram.conf)
+#   ::fpu 1|nodiv     NIOSV_FPU - the F extension (single precision), with or
+#                     without the FSQRT/FDIV logic
+# (copied into other names: this script runs at global scope, where a
+# "set small_ocram 0" would overwrite ::small_ocram itself)
+set opt_small_ocram 0
+if {[info exists ::small_ocram]} { set opt_small_ocram $::small_ocram }
+set opt_fpu 0
+if {[info exists ::fpu]} { set opt_fpu $::fpu }
+
 add_instance cpu0 intel_niosv_g
 set_instance_parameter_value cpu0 clockFrequency [expr {double($cpu_hz)}]
-set_instance_parameter_value cpu0 dataCacheSize   0
+if {$opt_small_ocram} {
+    set_instance_parameter_value cpu0 dataCacheSize   8192
+} else {
+    set_instance_parameter_value cpu0 dataCacheSize   0
+}
+if {$opt_fpu != 0} {
+    set_instance_parameter_value cpu0 enableFPU True
+    if {$opt_fpu == "nodiv"} {
+        set_instance_parameter_value cpu0 disableFsqrtFdiv True
+    }
+}
 # 16 KB instruction cache (the largest): Zephyr's code runs from the
 # HyperRAM (XIP, see zephyr_overlays/niosv_g_hyperram_xip.overlay), whose
-# uncached fetches would be ~1 us each. No data cache: data stays in on-chip
-# RAM, and the peripherals need no uncached region.
+# uncached fetches would be ~1 us each. No data cache by default: data stays
+# in on-chip RAM (SMALL_OCRAM=1 moves it to the HyperRAM behind one).
 set_instance_parameter_value cpu0 instCacheSize   16384
 # With any cache configured, everything outside a peripheral region is
 # cacheable - including, for instruction fetches, the debug module: the CPU
@@ -65,7 +89,11 @@ set_instance_parameter_value cpu0 resetSlave       Absolute
 # ---------------------------------------------------------------- on-chip RAM (256 KB @ 0x0)
 add_instance ram0 intel_onchip_memory
 set_instance_parameter_value ram0 AXI_interface 1
-set_instance_parameter_value ram0 memorySize    262144.0
+if {$opt_small_ocram} {
+    set_instance_parameter_value ram0 memorySize    69632.0
+} else {
+    set_instance_parameter_value ram0 memorySize    262144.0
+}
 set_instance_parameter_value ram0 writable      1
 
 # ---------------------------------------------------------------- JTAG UART console

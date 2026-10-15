@@ -17,6 +17,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/init.h>
 #include <zephyr/arch/riscv/csr.h>
+#include <zephyr/cache.h>
 #include <axc3000/warm_reboot.h>
 
 #define BOOT_FLAGS ((volatile uint32_t *)DT_REG_ADDR(DT_NODELABEL(axc3000_boot_flags)))
@@ -59,6 +60,12 @@ FUNC_NORETURN void axc3000_warm_reboot(void)
 	 * the ones its drivers use
 	 */
 	csr_write(mie, 0);
+#if defined(CONFIG_AXC3000_NIOSV_CACHE)
+	/* the data cache's lines to memory and dropped: MCUboot's RAM may be
+	 * where this program's was
+	 */
+	(void)sys_cache_data_flush_and_invd_all();
+#endif
 	icache_invalidate();
 	((void (*)(void))RESET_VECTOR)();
 	CODE_UNREACHABLE;

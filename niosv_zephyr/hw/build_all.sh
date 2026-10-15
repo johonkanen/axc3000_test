@@ -56,13 +56,24 @@ rm -rf niosv_zephyr_sys.qsys niosv_zephyr_sys ip/niosv_zephyr_sys/niosv_zephyr_s
 
 export CPU_CLOCK_MHZ="${CPU_CLOCK_MHZ:-120}"   # 150 also closes, by 0.1 ns; 200 fails
 echo "CPU clock: $CPU_CLOCK_MHZ MHz"
+# SMALL_OCRAM=1: 8 KB data cache, 68 KB on-chip RAM, data in the HyperRAM
+# (MCUboot from build_mcuboot_small: SMALL_OCRAM=1 mcuboot/build_mcuboot.sh)
+SMALL_OCRAM="${SMALL_OCRAM:-0}"
+# NIOSV_FPU=1 | nodiv: the Nios V/g FPU (F extension), nodiv without FSQRT/FDIV
+NIOSV_FPU="${NIOSV_FPU:-0}"
+if [ "$SMALL_OCRAM" = 1 ]; then RAM0_END=0x10FFF; else RAM0_END=0x3FFFF; fi
+echo "Options: SMALL_OCRAM=$SMALL_OCRAM NIOSV_FPU=$NIOSV_FPU (ram0 to $RAM0_END)"
 
 step "qsys-script: build the Platform Designer system"
-qsys-script --cmd="set ::cpu_mhz $CPU_CLOCK_MHZ" --script=build_niosv_system.tcl
+qsys-script --cmd="set ::cpu_mhz $CPU_CLOCK_MHZ; set ::small_ocram $SMALL_OCRAM; set ::fpu $NIOSV_FPU" \
+    --script=build_niosv_system.tcl
+mkdir -p output_files
+echo "$RAM0_END" > output_files/ram0_end      # for update_mcuboot.sh
 
 # MCUboot in ram0's initial contents, so the bitstream boots into it
 # (mcuboot/build_mcuboot.sh builds it). MCUBOOT_ELF= (empty) leaves ram0 blank.
-MCUBOOT_ELF="${MCUBOOT_ELF-$HERE/../zephyr/build_mcuboot/zephyr/zephyr.elf}"
+if [ "$SMALL_OCRAM" = 1 ]; then MCUBOOT_BUILD=build_mcuboot_small; else MCUBOOT_BUILD=build_mcuboot; fi
+MCUBOOT_ELF="${MCUBOOT_ELF-$HERE/../zephyr/$MCUBOOT_BUILD/zephyr/zephyr.elf}"
 if [ -n "$MCUBOOT_ELF" ]; then
     if [ ! -f "$MCUBOOT_ELF" ]; then
         echo "ERROR: MCUBOOT_ELF $MCUBOOT_ELF not found (mcuboot/build_mcuboot.sh, or MCUBOOT_ELF= for none)" >&2
@@ -72,7 +83,7 @@ if [ -n "$MCUBOOT_ELF" ]; then
     mkdir -p output_files
     QUARTUS_ROOTDIR="$HOME/altera_pro/26.1.1/quartus" \
     "$HOME/altera_pro/26.1.1/niosv/bin/elf2hex" -i "$MCUBOOT_ELF" -o "$HERE/output_files/mcuboot.hex" \
-        -b 0x0 -e 0x3FFFF -w 32 -r 4 --little-endian-mem
+        -b 0x0 -e $RAM0_END -w 32 -r 4 --little-endian-mem
     qsys-script --system-file=niosv_zephyr_sys.qsys --cmd="set HEX_FILE $HERE/output_files/mcuboot.hex" \
         --script=bake_hex_into_ram.tcl
 fi

@@ -12,14 +12,26 @@ cmake_minimum_required(VERSION 3.20.0)
 
 set(NIOSV_ZEPHYR ${CMAKE_CURRENT_LIST_DIR}/../..)
 include(${CMAKE_CURRENT_LIST_DIR}/../niosv_cpu_clock.cmake)
+# -DSMALL_OCRAM=1: the small on-chip RAM hardware variant (68 KB ram0, an 8
+# KB data cache; hw_a065dc) - all of the application's memory in the HyperRAM
+if(SMALL_OCRAM)
+  set(XIP_OVERLAY niosv_g_hyperram_xip_small)
+  set(BOOTINFO_OVERLAY niosv_g_bootinfo_small)
+else()
+  set(XIP_OVERLAY niosv_g_hyperram_xip)
+  set(BOOTINFO_OVERLAY niosv_g_bootinfo)
+endif()
 list(APPEND EXTRA_DTC_OVERLAY_FILE
-     ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_hyperram_xip.overlay
+     ${NIOSV_ZEPHYR}/zephyr_overlays/${XIP_OVERLAY}.overlay
      ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_uart_fifo.overlay
      ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_sdm_qspi.overlay
      ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_flash_layout.overlay
-     ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_bootinfo.overlay
+     ${NIOSV_ZEPHYR}/zephyr_overlays/${BOOTINFO_OVERLAY}.overlay
      ${CMAKE_CURRENT_LIST_DIR}/app.overlay)
 list(APPEND EXTRA_CONF_FILE ${NIOSV_ZEPHYR}/mcuboot/app_ram_load.conf)
+if(SMALL_OCRAM)
+  list(APPEND EXTRA_CONF_FILE ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_small_ocram.conf)
+endif()
 
 if(NOT DEFINED APP_VERSION)
   set(APP_VERSION 0.0.0)

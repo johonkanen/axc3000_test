@@ -46,6 +46,14 @@ mcuboot/build_mcuboot.sh            # -> zephyr/build_mcuboot (120 MHz CPU)
 cd hw && ./build_all.sh             # CPU_CLOCK_MHZ=120 default; bakes MCUboot into ram0
 ```
 
+Options (environment variables of `build_all.sh`):
+
+| Option | Effect |
+|---|---|
+| `CPU_CLOCK_MHZ=120` | the CPU clock (any divisor of the PLL's 2400 MHz VCO); 150 closes, 200 does not |
+| `SMALL_OCRAM=1` | an 8 KB data cache and a 68 KB on-chip RAM (MCUboot's 64 KB XIP code + boot information at 0x10000); all data - MCUboot's and the application's - in the HyperRAM behind the cache. 79 instead of 164 M20K. Needs the matching software: `SMALL_OCRAM=1 mcuboot/build_mcuboot.sh` (-> `build_mcuboot_small`, which `build_all.sh` then bakes in) and the application built with `-DSMALL_OCRAM=1`. **Never mix**: a normal application on this hardware has no RAM. |
+| `NIOSV_FPU=1` / `nodiv` | the Nios V/g FPU (RISC-V F, single precision), with / without FSQRT and FDIV in hardware (nodiv: the compiler's software routines). Zephyr would need `CONFIG_FPU` and an `rv32imf` ISA in `niosv_g_axc3000.overlay` (not done). |
+
 `build_all.sh` puts `zephyr/build_mcuboot/zephyr/zephyr.elf` into the on-chip
 RAM's initial contents. After changing only MCUboot, skip the full build:
 
