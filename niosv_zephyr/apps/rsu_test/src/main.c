@@ -6,7 +6,7 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/flash.h>
 #include <axc3000/sdm_rsu.h>
-#include <librsu.h>
+#include <libRSU.h>
 
 int main(void)
 {

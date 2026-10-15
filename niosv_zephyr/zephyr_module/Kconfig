@@ -58,14 +58,21 @@ config AXC3000_SDM_REBOOT
 	  on-chip RAM - the application overwrites it there.
 
 config AXC3000_LIBRSU
-	bool "Intel's libRSU (Remote System Update) on the QSPI flash"
+	bool "Altera's uniLibRSU (Remote System Update) on the QSPI flash"
 	depends on FLASH_AXC3000_SDM_QSPI
 	select CRC
 	help
-	  Intel's open-source libRSU (lib/librsu, BSD-2-Clause): program FPGA
-	  application images into the RSU flash slots (P1, P2), make one the
-	  highest priority, read the RSU status. <librsu.h>; librsu_init(NULL).
+	  Altera's uniLibRSU (lib/unilibrsu, MIT-0): program FPGA application
+	  images into the RSU flash slots (P1, P2), make one the highest
+	  priority, read the RSU status. <libRSU.h>; librsu_init(NULL).
+	  It writes only the RSU tables and P1/P2 (devicetree partitions).
 	  It uses malloc: give it a heap (COMMON_LIBC_MALLOC_ARENA_SIZE).
+
+if AXC3000_LIBRSU
+module = UNILIBRSU
+module-str = uniLibRSU
+source "subsys/logging/Kconfig.template.log_config"
+endif
 
 config AXC3000_RSU_MGMT
 	bool "FPGA bitstream updates over mcumgr (command group 64)"

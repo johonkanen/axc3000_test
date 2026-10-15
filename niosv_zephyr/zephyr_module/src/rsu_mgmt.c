@@ -1,9 +1,9 @@
 /*
  * FPGA bitstream updates over mcumgr (SMP): a command group (64, the first
- * user group) on libRSU (lib/librsu). The image - an RSU application image,
+ * user group) on Altera's uniLibRSU (lib/unilibrsu). The image - an RSU application image,
  * hw/flash/make_flash_images.sh's application.rpd - is uploaded in chunks
- * into a buffer in the HyperRAM, then programmed into an RSU slot (P1/P2),
- * verified, and made the highest priority: the SDM's decision firmware boots
+ * into a buffer in the HyperRAM, then programmed into an RSU slot (P1/P2) -
+ * which makes it the highest priority - and verified: the SDM's decision firmware boots
  * it at the next configuration from flash, and falls back to the next one /
  * the factory image if it fails. The factory image is never written.
  *
@@ -12,7 +12,9 @@
  *                      "slots": [{"name", "addr", "size", "prio"}, ...]}
  *   1 upload  (write) {"off", "len" (total, with off = 0), "data"} -> {"off"}
  *   2 program (write) {"slot", "crc" (CRC-32 of the whole image)} -> {"slot", "librsu"
- *                      (0, or libRSU's error), "step" (where it failed)}
+ *                      (0, or libRSU's error), "step" (where it failed:
+ *                      1 erase, 2 program - also makes it the highest
+ *                      priority, 3 verify)}
  *   3 load    (write) {"slot"}: reconfigure from that slot now
  *
  * mcuboot/update_bitstream.py is the host side.
@@ -28,16 +30,16 @@
 #include <zcbor_encode.h>
 #include <mgmt/mcumgr/util/zcbor_bulk.h>
 #include <axc3000/hyperram.h>
-#include <librsu.h>
+#include <libRSU.h>
 
 LOG_MODULE_REGISTER(rsu_mgmt, LOG_LEVEL_INF);
 
-/* The handlers run on mcumgr's transport workqueue; libRSU's programming and
- * verifying keep two 4 KB image blocks on the stack. The default 2 KB
- * overflowed silently (a corrupted offset made libRSU report -ESIZE).
+/* The handlers run on mcumgr's transport workqueue; the default 2 KB stack
+ * overflowed silently under the earlier libRSU port (its 4 KB image blocks
+ * were on the stack - uniLibRSU mallocs them).
  */
-BUILD_ASSERT(CONFIG_MCUMGR_TRANSPORT_WORKQUEUE_STACK_SIZE >= 12288,
-	     "rsu_mgmt: CONFIG_MCUMGR_TRANSPORT_WORKQUEUE_STACK_SIZE must be at least 12288");
+BUILD_ASSERT(CONFIG_MCUMGR_TRANSPORT_WORKQUEUE_STACK_SIZE >= 8192,
+	     "rsu_mgmt: CONFIG_MCUMGR_TRANSPORT_WORKQUEUE_STACK_SIZE must be at least 8192");
 
 #define RSU_MGMT_GROUP   MGMT_GROUP_ID_PERUSER
 #define RSU_MGMT_STATUS  0
@@ -191,14 +193,10 @@ static int rsu_mgmt_program(struct smp_streamer *ctxt)
 		step = 3;
 		ret = rsu_slot_verify_buf(slot, image, image_len);
 	}
-	if (ret == 0) {
-		step = 4;
-		ret = rsu_slot_enable(slot);       /* highest priority */
-	}
 	if (ret) {
 		LOG_ERR("program slot %u: step %u, librsu %d", slot, step, ret);
 	} else {
-		LOG_INF("slot %u programmed, verified, highest priority", slot);
+		LOG_INF("slot %u programmed (highest priority), verified", slot);
 		k_heap_free(&hyperram_heap, image);
 		image = NULL;
 		image_len = image_have = 0;

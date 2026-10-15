@@ -4,6 +4,7 @@ zephyr_module/src/rsu_mgmt.c in the running application).
 
     update_bitstream.py status
     update_bitstream.py program hw/output_files/application.rpd [--slot N] [--load]
+    update_bitstream.py load N
 
 program: uploads an RSU application image (hw/flash/make_flash_images.sh's
 application.rpd) into a HyperRAM buffer on the board, which programs it into
@@ -77,7 +78,7 @@ class ProgramResponse(message.WriteResponse):
     _COMMAND_ID = 2
     slot: int
     librsu: int
-    step: int       # 0 done, else where it failed: 1 erase, 2 program, 3 verify, 4 enable
+    step: int       # 0 done, else where it failed: 1 erase, 2 program, 3 verify
 
 
 class ProgramRequest(message.WriteRequest, _Rsu):
@@ -126,6 +127,8 @@ async def main():
     p.add_argument("rpd")
     p.add_argument("--slot", type=int, help="RSU slot (default: one not running)")
     p.add_argument("--load", action="store_true", help="reconfigure from it now")
+    p = sub.add_parser("load", help="reconfigure from an RSU slot now")
+    p.add_argument("slot", type=int)
     a = ap.parse_args()
 
     transport = SMPSerialTransport(line_length=4096, line_buffers=4, baudrate=a.baudrate,
@@ -134,6 +137,10 @@ async def main():
         st = check(await client.request(StatusRequest()), "status")
         show(st)
         if a.cmd == "status":
+            return
+        if a.cmd == "load":
+            check(await client.request(LoadRequest(slot=a.slot)), "load")
+            print(f"reconfiguring from slot {a.slot}")
             return
 
         image = open(a.rpd, "rb").read()
@@ -161,10 +168,10 @@ async def main():
         rsp = check(await client.request(ProgramRequest(slot=slot, crc=zlib.crc32(image)),
                                          timeout_s=300), "program")
         if rsp.librsu:
-            steps = {1: "erase", 2: "program", 3: "verify", 4: "enable"}
+            steps = {1: "erase", 2: "program", 3: "verify"}
             sys.exit(f"program failed in {steps.get(rsp.step, rsp.step)}: librsu error "
-                     f"{rsp.librsu} (zephyr_module/include/librsu.h)")
-        print(f"  programmed, verified, highest priority in {time.time() - t1:.0f} s")
+                     f"{rsp.librsu} (zephyr_module/lib/unilibrsu/include/libRSU.h)")
+        print(f"  programmed (highest priority), verified in {time.time() - t1:.0f} s")
         show(check(await client.request(StatusRequest()), "status"))
 
         if a.load:

@@ -15,14 +15,11 @@ configuration flash, and software is updated over the FTDI serial port
 | Rescue: no valid app -> MCUboot serial recovery takes an upload | works |
 | Reset = FPGA reconfiguration from flash (reloads MCUboot) | works |
 | RSU status / slot listing over serial (`update_bitstream.py status`) | works |
-| **FPGA bitstream update over serial** (`update_bitstream.py program`) | **NOT working** - upload works (125 kB/s), programming into RSU slot P2 fails in libRSU; a failed attempt also left MCUboot slot 0 (0x1000000) erased. Do not use until fixed. |
+| **FPGA bitstream update over serial** (`update_bitstream.py program`) | **works** (uniLibRSU): 1.6 MB upload at ~125 kB/s, program + verify into P2 12 s, reconfiguration from P2 boots MCUboot and the app; reset restarts from P2. Not yet tested: power-up boot from P2, fallback from a failing image |
 | First installation of the flash | needs JTAG once (`initial_image.jic`) |
 
-**Board state at the time of writing:** the RSU flash image is intact
-(factory + P1 boot), but there is no valid app in the MCUboot slots - MCUboot
-waits in serial recovery. Uploads into recovery currently fail and are being
-investigated; restore by programming `hw/output_files/niosv_zephyr.sof` over
-JTAG and uploading an app (step 6/7), or reprogramming the `.jic` (step 4).
+**Board state at the time of writing:** running from P2 (highest priority;
+P1 next, factory last), app 1.3.0 in MCUboot slot 1, 1.2.3 in slot 0.
 
 ## Prerequisites
 
@@ -116,12 +113,23 @@ west build -d build_smp_app -- -DAPP_VERSION=1.1.0
 Signs, uploads into the slot that is not running, resets (FPGA
 reconfiguration from flash); MCUboot boots the newer version.
 
-## 8. Bitstream updates (serial) - NOT WORKING YET
+## 8. Bitstream updates (serial)
 
 ```
-python3 mcuboot/update_bitstream.py status
-python3 mcuboot/update_bitstream.py program hw/output_files/application.rpd --load   # do not use yet
+cd hw && ./flash/make_flash_images.sh && cd ..       # -> output_files/application.rpd
+.venv/bin/python3 mcuboot/update_bitstream.py status
+.venv/bin/python3 mcuboot/update_bitstream.py program hw/output_files/application.rpd --load
+.venv/bin/python3 mcuboot/update_bitstream.py load N   # reconfigure from slot N now
 ```
+
+`program` uploads the image into a HyperRAM buffer, programs it into the RSU
+slot that is not running (P1/P2; the factory image is never written),
+verifies it and makes it the highest priority - the SDM boots it at every
+configuration from flash, and falls back to the next slot / the factory image
+if it fails. `--load` reconfigures from it right away. The bitstream carries
+MCUboot (on-chip RAM), which then boots the app from its flash slots as
+before. The library is Altera's uniLibRSU (`zephyr_module/lib/unilibrsu`); its
+flash layer refuses writes outside the RSU tables and P1/P2.
 
 ## Debug access (JTAG)
 
