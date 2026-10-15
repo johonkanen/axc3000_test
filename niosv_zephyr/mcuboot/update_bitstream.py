@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FPGA bitstream updates over the 4.8 MBaud FTDI UART (mcumgr / SMP group 64,
+"""FPGA bitstream updates over the 12 MBaud FTDI UART (mcumgr / SMP group 64,
 zephyr_module/src/rsu_mgmt.c in the running application).
 
     update_bitstream.py status
@@ -26,7 +26,9 @@ from smpclient import SMPClient
 from smpclient.transport.serial import SMPSerialTransport
 
 GROUP = 64          # MGMT_GROUP_ID_PERUSER
-CHUNK = 8000        # bytes of image per SMP frame (~12 KB encoded: 4 x 4 KB lines)
+CHUNK = 8000        # bytes of image per SMP frame (~12 KB encoded: 4 x 4 KB lines);
+                    # --small: 1 KB frames, for a board whose UART FIFO is 2 KB
+                    # (a 16 KB frame overflows it at 12 MBaud)
 
 
 class RsuErrorV1(error.ErrorV1):
@@ -120,7 +122,8 @@ async def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", default="/dev/ttyUSB0")
-    ap.add_argument("--baudrate", type=int, default=4_800_000)
+    ap.add_argument("--baudrate", type=int, default=12_000_000)
+    ap.add_argument("--small", action="store_true", help="1 KB SMP frames (2 KB UART FIFO)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status")
     p = sub.add_parser("program")
@@ -131,8 +134,11 @@ async def main():
     p.add_argument("slot", type=int)
     a = ap.parse_args()
 
-    transport = SMPSerialTransport(line_length=4096, line_buffers=4, baudrate=a.baudrate,
-                                   max_smp_encoded_frame_size=4096 * 4)
+    line_length, line_buffers = (512, 2) if a.small else (4096, 4)
+    chunk = 600 if a.small else CHUNK
+    transport = SMPSerialTransport(line_length=line_length, line_buffers=line_buffers,
+                                   baudrate=a.baudrate,
+                                   max_smp_encoded_frame_size=line_length * line_buffers)
     async with SMPClient(transport, a.port, timeout_s=60) as client:
         st = check(await client.request(StatusRequest()), "status")
         show(st)
@@ -156,9 +162,9 @@ async def main():
         t0 = time.time()
         off = 0
         while off < len(image):
-            chunk = image[off:off + CHUNK]
+            part = image[off:off + chunk]
             rsp = check(await client.request(
-                UploadRequest(off=off, len=len(image), data=chunk)), f"upload at {off}")
+                UploadRequest(off=off, len=len(image), data=part)), f"upload at {off}")
             off = rsp.off
             print(f"\r  uploaded {off} / {len(image)}", end="", flush=True)
         t1 = time.time()

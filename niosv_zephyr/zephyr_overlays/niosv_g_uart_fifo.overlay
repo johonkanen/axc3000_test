@@ -10,7 +10,7 @@
 		compatible = "axc3000,uart-fifo";
 		reg = <0xb0000 0x20>;
 		interrupts = <17>;
-		current-speed = <4800000>;
-		fifo-size = <2048>;
+		current-speed = <12000000>;
+		fifo-size = <16384>;
 	};
 };

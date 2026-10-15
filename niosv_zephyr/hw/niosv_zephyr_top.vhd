@@ -94,7 +94,8 @@ entity niosv_zephyr_top is
         hr_rwds     : inout std_logic;
         hr_dq       : inout std_logic_vector(7 downto 0);
 
-        -- FTDI serial port (USB-Blaster UART channel B), up to 4.8 MBaud
+        -- FTDI serial port (USB-Blaster UART channel B), 12 MBaud (the FTDI's
+        -- maximum, tested: 1.2 MB/s full duplex without errors)
         uart_rxd    : in  std_logic;   -- AG23, board TX -> FPGA RX
         uart_txd    : out std_logic    -- AG24, FPGA TX -> board RX
     );
@@ -430,7 +431,10 @@ begin
 
     u_uart : entity work.uart_axi4lite
         generic map (
-            g_fifo_depth_log2 => 11,     -- 2 KB each way
+            -- 16 KB each way: a whole SMP frame (16 KB) fits, so the receive
+            -- interrupt need not keep up with 12 MBaud (1.2 MB/s) - from the
+            -- HyperRAM it does not, and 2 KB overflowed (4.5 KB of a frame lost)
+            g_fifo_depth_log2 => 14,
             g_bit_time        => 5333    -- reset value; the driver sets it from the clock
         )
         port map (

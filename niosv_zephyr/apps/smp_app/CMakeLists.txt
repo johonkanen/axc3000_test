@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # The updatable application: runs from the HyperRAM under MCUboot (RAM-load),
-# and takes new images over the 4.8 MBaud FTDI UART (mcumgr / SMP server):
+# and takes new images over the 12 MBaud FTDI UART (mcumgr / SMP server):
 # upload into a flash slot, then reset - MCUboot boots the newer version.
 #
 #   west build -b niosv_g -d build_smp_app ../apps/smp_app -- -DAPP_VERSION=1.0.0
 #   ../mcuboot/sign_app.sh build_smp_app 1.0.0
-#   then: smpmgr --port /dev/ttyUSB0 --baudrate 4800000 ... upgrade zephyr.signed.bin
+#   then: smpmgr --port /dev/ttyUSB0 --baudrate 12000000 ... upgrade zephyr.signed.bin
 
 cmake_minimum_required(VERSION 3.20.0)
 

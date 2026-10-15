@@ -77,6 +77,14 @@ int main(void)
 		return 0;
 	}
 	uart_config_get(uart, &cfg);
+#ifdef TEST_BAUD
+	/* a rate other than the devicetree's (-DEXTRA_CFLAGS=-DTEST_BAUD=n) */
+	cfg.baudrate = TEST_BAUD;
+	if (uart_configure(uart, &cfg)) {
+		printk("uart1: %u baud refused\n", cfg.baudrate);
+		return 0;
+	}
+#endif
 	if (JTAG_UART_WSPACE() >= 64) {
 		printk("uart_fifo_test: echo, %u baud, CPU %u Hz\n", cfg.baudrate,
 		       (unsigned int)sys_clock_hw_cycles_per_sec());

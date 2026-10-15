@@ -2,14 +2,14 @@
 """Echo test for apps/uart_fifo_test: send random data over the FTDI serial
 port, read the echo back at the same time, compare, report throughput.
 
-    python3 host_echo_test.py [--port /dev/ttyUSB0] [--baud 4800000] [--bytes 1000000]
+    python3 host_echo_test.py [--port /dev/ttyUSB0] [--baud 12000000] [--bytes 1000000]
 """
 import argparse, os, sys, threading, time
 import serial
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--port", default="/dev/ttyUSB0")
-ap.add_argument("--baud", type=int, default=4_800_000)
+ap.add_argument("--baud", type=int, default=12_000_000)
 ap.add_argument("--bytes", type=int, default=1_000_000)
 ap.add_argument("--chunk", type=int, default=4096)
 ap.add_argument("--rate", type=float, default=0, help="pace sending to this many kB/s (0: as fast as the port goes)")

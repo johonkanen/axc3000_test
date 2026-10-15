@@ -3,13 +3,13 @@
 Nios V/g + Zephyr on the Arrow AXC3000 (Agilex 3 `A3CY100BM16AE7S`): the
 application runs from the onboard HyperRAM, the board boots from its QSPI
 configuration flash, and software is updated over the FTDI serial port
-(4.8 MBaud).
+(12 MBaud, the FTDI chip's maximum).
 
 ## Status (2026-10-14)
 
 | What | Status |
 |---|---|
-| Hardware build (Nios V/g 120 MHz, HyperRAM, 4.8 MBaud UART, SDM mailbox) | works |
+| Hardware build (Nios V/g 120 MHz, HyperRAM, 12 MBaud UART, SDM mailbox) | works |
 | Boot from flash: SDM -> bitstream -> MCUboot -> app from flash into HyperRAM | works, hardware-verified after power cycle |
 | **App update over serial** (`mcuboot/update_app.sh`) | **works** (repeatedly: 1.0.7 -> 1.2.2) |
 | Rescue: no valid app -> MCUboot serial recovery takes an upload | works |
@@ -97,9 +97,9 @@ With no valid app MCUboot waits in recovery:
 
 ```
 mcuboot/sign_app.sh zephyr/build_smp_app 1.0.0
-smpmgr --port /dev/ttyUSB0 --baudrate 4800000 --line-length 4096 --line-buffers 4 --timeout 30 \
+smpmgr --port /dev/ttyUSB0 --baudrate 12000000 --timeout 30 \
     image upload zephyr/build_smp_app/zephyr/zephyr.signed.bin
-smpmgr --port /dev/ttyUSB0 --baudrate 4800000 --line-length 4096 --line-buffers 4 --timeout 30 os reset
+smpmgr --port /dev/ttyUSB0 --baudrate 12000000 --timeout 30 os reset
 ```
 
 ## 7. App updates (serial, through the running app)
@@ -112,6 +112,11 @@ west build -d build_smp_app -- -DAPP_VERSION=1.1.0
 
 Signs, uploads into the slot that is not running, resets (FPGA
 reconfiguration from flash); MCUboot boots the newer version.
+
+Throughput at 12 MBaud: application update (100 KB) about 2.5 s with `update_app.sh`;
+bitstream upload 152 kB/s (base64 and a round trip per frame dominate, not the line
+rate). `update_bitstream.py --small program ...` uses 1 KB frames, for a board whose
+UART FIFO is still 2 KB (bitstreams before the 16 KB FIFOs).
 
 ## 8. Bitstream updates (serial)
 
