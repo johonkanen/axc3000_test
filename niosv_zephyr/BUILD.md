@@ -159,6 +159,24 @@ uploads a persona and programs it into the region while everything else
 keeps running. Build `-DPR_DEMO=1` apps only for PR_DEMO hardware.
 Details and numbers: `../PARTIAL_RECONFIGURATION.md` section 7.
 
+`apps/pr_blinker` swaps the personas by itself every 3 s
+(`-DPR_PERIOD_MS`), both built into the app (736 KB). It boots from the
+flash like any MCUboot app, on the PR hardware's own flash image:
+
+```
+cd hw && ./flash/make_flash_images.sh                 # of the PR_DEMO=1 build
+quartus_pgm -c 1 -m jtag -o "pvi;output_files/initial_image.jic"   # then power-cycle
+cd ../zephyr
+west build -b niosv_g -d build_pr_blinker ../apps/pr_blinker -- -DAPP_VERSION=2.0.0
+../mcuboot/sign_app.sh build_pr_blinker 2.0.0
+smpmgr --port /dev/ttyUSB0 --baudrate 12000000 --timeout 30 \
+    image upload build_pr_blinker/zephyr/zephyr.signed.bin   # ~90 s in recovery
+smpmgr --port /dev/ttyUSB0 --baudrate 12000000 --timeout 30 os reset
+```
+
+`-DPR_HW=<dir>` takes the personas from another hardware directory (e.g.
+`../hw_pr`); they only load into the base revision they were built with.
+
 ## Debug access (JTAG)
 
 - `hw/download.sh <elf>` - load and run an on-chip-RAM or XIP ELF (word by

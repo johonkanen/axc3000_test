@@ -258,6 +258,10 @@ static region means rebuilding the base and then every persona.
 | `update_bitstream.py pr` over the 12 MBaud UART, green <-> blue | 6 of 6 switches, **59-60 ms** of PR on the board, 2.9 s in all (upload 138 kB/s) |
 | The static region during PR | keeps running: the Nios V app that drives the PR answers right after it |
 
+`apps/pr_blinker` (both personas built in) swaps them every 3 s
+from the flash: PR base bitstream + MCUboot in the RSU image, the app in an
+MCUboot slot. Each swap takes 61 ms. It runs at power-up by itself.
+
 315 KB in 60 ms is 5.3 MB/s; the CPU loop reading the image from HyperRAM
 probably sets that, not the SDM.
 

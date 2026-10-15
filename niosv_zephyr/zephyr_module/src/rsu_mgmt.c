@@ -36,6 +36,9 @@
 #include <mgmt/mcumgr/util/zcbor_bulk.h>
 #include <axc3000/hyperram.h>
 #include <libRSU.h>
+#ifdef CONFIG_AXC3000_PR_MGMT
+#include <axc3000/pr.h>
+#endif
 
 LOG_MODULE_REGISTER(rsu_mgmt, LOG_LEVEL_INF);
 
@@ -253,56 +256,13 @@ static int rsu_mgmt_load(struct smp_streamer *ctxt)
 }
 
 #ifdef CONFIG_AXC3000_PR_MGMT
-/*
- * Altera's PR Controller IP, Avalon-MM (ip/.../altera_pr_mm_*.sv): word 0
- * data (written words go to the SDM - only while a PR is in progress -,
- * back-pressured: the CPU's store waits), word 1 CSR (write bit 0 starts;
- * read bits 3:1 the status: 1 system busy, 2 in progress, 3 done, 4 or 6
- * an error). pio_pr_ctrl's data register: bit 0 freeze, bit 1 reset.
- */
-#define PR_NODE      DT_NODELABEL(pr_controller)
-#define PR_DATA      ((volatile uint32_t *)DT_REG_ADDR_BY_NAME(PR_NODE, pr))
-#define PR_CSR       (PR_DATA + 1)
-#define PR_CTRL      ((volatile uint32_t *)DT_REG_ADDR_BY_NAME(PR_NODE, ctrl))
-#define PR_FREEZE    BIT(0)
-#define PR_RESET     BIT(1)
-
-#define PR_ST_BUSY   1
-#define PR_ST_PROG   2
-#define PR_ST_DONE   3
-
-static uint32_t pr_status(void)
-{
-	return (*PR_CSR >> 1) & 7;
-}
-
-static bool pr_error(uint32_t st)
-{
-	return st == 4 || st == 6;
-}
-
-/* polls for want (or an error) for up to 1 s */
-static uint32_t pr_wait(uint32_t want)
-{
-	int64_t end = k_uptime_get() + 1000;
-	uint32_t st;
-
-	do {
-		st = pr_status();
-		if (st == want || pr_error(st)) {
-			break;
-		}
-	} while (k_uptime_get() < end);
-	return st;
-}
-
 static int rsu_mgmt_pr(struct smp_streamer *ctxt)
 {
 	zcbor_state_t *zsd = ctxt->reader->zs;
 	zcbor_state_t *zse = ctxt->writer->zs;
 	uint32_t crc = 0;
 	size_t decoded;
-	uint32_t st, step = 1;
+	uint32_t st, step;
 	int64_t t0;
 
 	struct zcbor_map_decode_key_val pr_decode[] = {
@@ -322,55 +282,12 @@ static int rsu_mgmt_pr(struct smp_streamer *ctxt)
 	}
 
 	t0 = k_uptime_get();
-	/* the region's outputs held, its logic in reset (a few of its 25 MHz
-	 * clock's cycles through the synchroniser)
-	 */
-	*PR_CTRL = PR_FREEZE | PR_RESET;
-	k_busy_wait(10);
-
-	*PR_CSR = 1;
-	st = pr_wait(PR_ST_PROG);
-	if (st == PR_ST_PROG) {
-		const uint32_t *w = (const uint32_t *)image;
-		uint32_t n = image_len / 4;
-
-		bool failed = false;
-
-		step = 2;
-		/* all of it even after an error: the PR IP user guide's recovery
-		 * (Agilex) drains the rest of the bitstream before a retry.
-		 * But a damaged image (one with a valid CRC: corrupted before
-		 * the upload) makes the SDM stop taking data, and the store
-		 * below then waits forever - the CPU hangs until the FPGA is
-		 * reconfigured (seen on the board). A real design needs a
-		 * timeout in front of the data port.
-		 */
-		for (uint32_t i = 0; i < n; i++) {
-			*PR_DATA = w[i];
-			if ((i & 1023) == 1023 && !failed && pr_error(st = pr_status())) {
-				failed = true;
-			}
-		}
-		if (!failed) {
-			step = 3;
-			st = pr_wait(PR_ST_DONE);
-		}
-	}
-	if (st == PR_ST_DONE) {
-		step = 0;
-		/* reset released while still frozen, then the outputs */
-		*PR_CTRL = PR_FREEZE;
-		k_busy_wait(10);
-		*PR_CTRL = 0;
+	step = axc3000_pr_program(image, image_len, &st);
+	if (step == AXC3000_PR_OK) {
 		LOG_INF("PR: %u bytes in %lld ms", image_len, k_uptime_get() - t0);
 		k_heap_free(&hyperram_heap, image);
 		image = NULL;
 		image_len = image_have = 0;
-	} else {
-		/* the region stays frozen and in reset: no half-programmed logic
-		 * drives anything
-		 */
-		LOG_ERR("PR failed: step %u, status %u", step, st);
 	}
 
 	return zcbor_tstr_put_lit(zse, "status") && zcbor_uint32_put(zse, st) &&

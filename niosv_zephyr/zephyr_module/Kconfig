@@ -133,14 +133,19 @@ config AXC3000_RSU_MGMT
 
 DT_COMPAT_AXC3000_PR_CONTROLLER := axc3000,pr-controller
 
+config AXC3000_PR
+	bool "Partial reconfiguration of the PR_DEMO hardware's PR region"
+	default $(dt_compat_enabled,$(DT_COMPAT_AXC3000_PR_CONTROLLER))
+	help
+	  axc3000_pr_program() (<axc3000/pr.h>, src/pr.c): programs a PR
+	  bitstream (a persona, hw/pr/build_personas.sh's *.blinker.rbf)
+	  through Altera's PR Controller IP. Needs
+	  zephyr_overlays/niosv_g_pr.overlay.
+
 config AXC3000_PR_MGMT
 	bool "Partial reconfiguration over mcumgr (command 4 of group 64)"
-	default $(dt_compat_enabled,$(DT_COMPAT_AXC3000_PR_CONTROLLER))
-	depends on AXC3000_RSU_MGMT
+	default y
+	depends on AXC3000_RSU_MGMT && AXC3000_PR
 	help
-	  Program a persona of the PR_DEMO hardware's PR region (a PR
-	  bitstream, hw/pr/build_personas.sh's output_files/*.blinker.rbf)
-	  uploaded with rsu_mgmt's upload command, through Altera's PR
-	  Controller IP: freeze and reset the region, stream the image, release
-	  it (mcuboot/update_bitstream.py pr). Needs
-	  zephyr_overlays/niosv_g_pr.overlay.
+	  Program a persona uploaded with rsu_mgmt's upload command
+	  (mcuboot/update_bitstream.py pr).
