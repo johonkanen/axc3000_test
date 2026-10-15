@@ -5,16 +5,30 @@
  * recovery (mcumgr / SMP) on the 4.8 MBaud FTDI UART.
  */
 
-/* the on-chip RAM below the boot information (niosv_g_bootinfo.overlay);
- * from 0 - MCUboot's reset vector is there
+/* The on-chip RAM (with zephyr_overlays/niosv_g_bootinfo.overlay at the top):
+ *
+ *   0x00000  64 KB  MCUboot's "ROM": chosen zephyr,flash, so with CONFIG_XIP
+ *                   its code, read-only data and .data's initial values are
+ *                   linked here (the bitstream's RAM contents; the CPU's
+ *                   reset vector is at 0). Nothing writes it at run time, so
+ *                   MCUboot can be started again without reconfiguring the
+ *                   FPGA - a warm reboot (zephyr_module/src/warm_reboot.c).
+ *   0x10000         sram0: MCUboot's RAM (.data copied, .bss cleared at
+ *                   every start) - the application's RAM once it runs
  */
 &sram0 {
-	reg = <0x0 0x3ff00>;
+	reg = <0x10000 0x2fef0>;
 };
 
 / {
 	chosen {
+		zephyr,flash = &mcuboot_rom;
 		zephyr,flash-controller = &qspi;
 		zephyr,uart-mcumgr = &uart1;
+	};
+
+	mcuboot_rom: memory@0 {
+		compatible = "soc-nv-flash";
+		reg = <0x0 0x10000>;
 	};
 };

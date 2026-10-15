@@ -37,6 +37,7 @@ architecture vunit_simulation of hyperram_pll_reconfig_tb is
 
     signal dps_shift        : std_logic_vector(2 downto 0) := (others => '0');
     signal dps_shift_enable : std_logic := '0';
+    signal dps_done         : std_logic;
 
     -- the mock slave
     signal slave_delay   : natural := 20;
@@ -64,7 +65,7 @@ begin
             axil_wdata => wdata, axil_wvalid => wvalid, axil_wready => wready,
             axil_rdata => rdata, axil_rvalid => rvalid, axil_rready => rready,
             axil_bvalid => bvalid, axil_bready => bready,
-            dps_shift => dps_shift, dps_shift_enable => dps_shift_enable);
+            dps_shift => dps_shift, dps_shift_enable => dps_shift_enable, dps_done => dps_done);
 
 ------------------------------------------------------------------------
     slave : process(clk25)
@@ -173,6 +174,8 @@ begin
             check_equal(reg_c1 and not c_phase_mask, c_c1_initial and not c_phase_mask,
                         "C1's other fields unchanged");
         end procedure;
+
+        variable done_before : std_logic;
     begin
         test_runner_setup(runner, runner_cfg);
         while test_suite loop
@@ -197,8 +200,12 @@ begin
             elsif run("every_phase_in_turn") then
                 lock_and_enable;
                 for p in 1 to 7 loop
+                    done_before := dps_done;
                     request(p);
                     wait_for_phase(p, 100 us);
+                    -- dps_done toggles once the C1 write has its response
+                    wait until dps_done /= done_before for 10 us;
+                    check(dps_done /= done_before, "dps_done toggled after the write");
                 end loop;
                 request(0);
                 wait_for_phase(0, 100 us);

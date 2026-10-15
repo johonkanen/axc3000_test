@@ -29,11 +29,12 @@ static void print_status(const char *when)
 {
 	uint32_t status = HR_STATUS;
 
-	printk("%s: status=0x%08x calibrated=%d passed=%d phase=%u lo_first=%d "
-	       "pass_map=0x%04x debug=0x%08x%08x timeouts=%u\n",
-	       when, status, status & 1, !(status & 2), (status >> 24) & 7,
-	       (status >> 27) & 1, (status >> 8) & 0xffff,
-	       HR_DEBUG_HI, HR_DEBUG_LO, HR_TIMEOUTS);
+	/* the relative read clock phase's layout (zephyr_module <axc3000/hyperram.h>) */
+	printk("%s: status=0x%08x calibrated=%d passed=%d step=%u window=%u steps (%u ps) "
+	       "other order=%u lo_first=%d debug=0x%08x%08x timeouts=%u\n",
+	       when, status, status & 1, !(status & 2), (status >> 4) & 0xff,
+	       (status >> 12) & 0xff, ((status >> 12) & 0xff) * 52, (status >> 20) & 0xff,
+	       (status >> 2) & 1, HR_DEBUG_HI, HR_DEBUG_LO, HR_TIMEOUTS);
 }
 
 static void fail(const char *test, uint32_t offset, uint32_t expected, uint32_t got)
@@ -200,15 +201,19 @@ int main(void)
 	}
 	print_status("calibrated");
 
-	bool ok = true;
+	/* rounds, for a soak: the eye moves with temperature */
+	for (int round = 1; round <= 5; round++) {
+		bool ok = true;
 
-	ok &= test_data_bus();
-	ok &= test_address_bus();
-	ok &= test_strobes();
-	ok &= test_full(0);
-	ok &= test_full(0xffffffffu);
+		printk("round %d\n", round);
+		ok &= test_data_bus();
+		ok &= test_address_bus();
+		ok &= test_strobes();
+		ok &= test_full(0);
+		ok &= test_full(0xffffffffu);
 
-	print_status("after tests");
-	printk("RESULT: %s (%u errors)\n", ok ? "PASS" : "FAIL", errors);
+		print_status("after tests");
+		printk("RESULT round %d: %s (%u errors so far)\n", round, ok ? "PASS" : "FAIL", errors);
+	}
 	return 0;
 }

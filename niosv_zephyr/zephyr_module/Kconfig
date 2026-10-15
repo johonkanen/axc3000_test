@@ -16,6 +16,20 @@ config AXC3000_HYPERRAM_CALIBRATION_TIMEOUT_MS
 	default 1000
 	depends on AXC3000_HYPERRAM
 
+config AXC3000_HYPERRAM_WAIT
+	bool "Wait for the HyperRAM's calibration at boot (no heap)"
+	depends on !AXC3000_HYPERRAM
+	help
+	  For MCUboot: it copies the application into the HyperRAM right
+	  after a cold boot. Waits until hw/'s calibration reports done
+	  (src/hyperram_wait.c); AXC3000_HYPERRAM does that and more for
+	  applications.
+
+config AXC3000_HYPERRAM_WAIT_TIMEOUT_MS
+	int "Longest wait for the HyperRAM calibration"
+	default 1000
+	depends on AXC3000_HYPERRAM_WAIT
+
 config UART_AXC3000
 	bool "AXC3000 UART with FIFOs"
 	default y
@@ -55,7 +69,19 @@ config AXC3000_SDM_REBOOT
 	help
 	  sys_reboot() asks the SDM to reconfigure the device from the
 	  bitstream image that is running (RSU), which reloads MCUboot into the
-	  on-chip RAM - the application overwrites it there.
+	  on-chip RAM - except a warm reboot with AXC3000_WARM_REBOOT.
+
+config AXC3000_WARM_REBOOT
+	bool "Warm reboot: restart MCUboot without reconfiguring the FPGA"
+	default y
+	depends on AXC3000_SDM_REBOOT || MCUBOOT
+	depends on $(dt_nodelabel_enabled,axc3000_boot_flags)
+	help
+	  MCUboot runs as an XIP image from the bottom 64 KB of the on-chip
+	  RAM (mcuboot/mcuboot.overlay) and sets the boot flags
+	  (niosv_g_bootinfo.overlay); sys_reboot(SYS_REBOOT_WARM) - mcumgr's
+	  reset - then jumps back to it instead of reconfiguring the FPGA
+	  (src/warm_reboot.c). Cold reboots still reconfigure.
 
 config AXC3000_LIBRSU
 	bool "Altera's uniLibRSU (Remote System Update) on the QSPI flash"

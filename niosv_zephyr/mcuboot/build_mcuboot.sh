@@ -14,6 +14,17 @@ cat > "$NZ/zephyr/build_mcuboot.cpu.overlay" <<OVL
 	clock-frequency = <$CPU_HZ>;
 };
 OVL
+# our MCUboot patches (mcuboot/patches/*.patch), applied once to the
+# workspace's MCUboot (zephyr/bootloader/mcuboot)
+MCUBOOT_SRC="$NZ/zephyr/bootloader/mcuboot"
+for p in "$HERE"/patches/*.patch; do
+    if git -C "$MCUBOOT_SRC" apply --reverse --check "$p" 2>/dev/null; then
+        continue                                    # already applied
+    fi
+    git -C "$MCUBOOT_SRC" apply "$p"
+    echo "applied $(basename "$p")"
+done
+
 source "$NZ/.venv/bin/activate"
 cd "$NZ/zephyr"
 OVERLAYS="$NZ/zephyr/build_mcuboot.cpu.overlay"

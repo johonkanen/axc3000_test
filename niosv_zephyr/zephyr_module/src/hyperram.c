@@ -54,8 +54,8 @@ static int hyperram_init(void)
 		waited_ms++;
 	}
 	if (status & HR_NO_PASS) {
-		printk("hyperram: calibration found no passing setting (status 0x%08x), "
-		       "not used\n", status);
+		printk("hyperram: calibration failed (status 0x%08x: window %u steps, "
+		       "under the minimum), not used\n", status, HYPERRAM_STATUS_WINDOW(status));
 		return -EIO;
 	}
 
@@ -64,8 +64,10 @@ static int hyperram_init(void)
 
 	k_heap_init(&hyperram_heap, (void *)start, end - start);
 	ready = true;
-	printk("hyperram: calibrated (status 0x%08x), heap %u KB at 0x%08lx\n",
-	       status, (unsigned int)((end - start) / 1024), (unsigned long)start);
+	printk("hyperram: calibrated (status 0x%08x: step %u, window %u steps = %u ps), "
+	       "heap %u KB at 0x%08lx\n", status, HYPERRAM_STATUS_STEP(status),
+	       HYPERRAM_STATUS_WINDOW(status), HYPERRAM_STATUS_WINDOW(status) * 52,
+	       (unsigned int)((end - start) / 1024), (unsigned long)start);
 	return 0;
 }
 

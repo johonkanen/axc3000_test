@@ -58,6 +58,15 @@
 -- post-reconfiguration PLL reset would be actively wrong, not just
 -- unnecessary.
 --
+-- The phase field is NOT an absolute phase: each write that changes it
+-- moves the output relative to where it is, and only a change by -1 (mod 8)
+-- is exact - one step (1/8 VCO period, 52 ps) earlier; other changes can
+-- slip by a whole VCO period (simulated with the generated IP: 0 -> 1 and
+-- 4 -> 5 went -7 steps instead of +1). hyperram_core's relative phase mode
+-- (g_phase_steps) therefore only ever steps down by one and waits for
+-- dps_done before it uses the new phase. A write (read-modify-write through
+-- the IOSSM) takes about 5 us.
+--
 -- One target: counter 1 (outclk1, the HyperRAM read-capture clock),
 -- rewritten whenever hyperram_core's calibration requests a new phase (its
 -- phase_shift record - see hyperram_pkg.vhd). shift_select's one-hot target
@@ -104,7 +113,10 @@ entity hyperram_pll_reconfig is
         axil_bready  : out std_logic;
 
         dps_shift        : in std_logic_vector(2 downto 0);
-        dps_shift_enable : in std_logic
+        dps_shift_enable : in std_logic;
+        -- toggles when a requested phase has been written (the C1 write's response): the
+        -- HyperRAM core waits for it before it uses the new phase
+        dps_done         : out std_logic
     );
 end entity hyperram_pll_reconfig;
 
@@ -137,6 +149,8 @@ architecture rtl of hyperram_pll_reconfig is
     signal enable_sync : std_logic_vector(3 downto 0) := (others => '0');
     signal shift_sync0, shift_sync1 : std_logic_vector(2 downto 0) := (others => '0');
 
+    signal done_toggle : std_logic := '0';
+
     -- the newest request not yet started
     signal request_pending : boolean := false;
     signal request_phase   : unsigned(2 downto 0) := (others => '0');
@@ -151,6 +165,7 @@ begin
     axil_arvalid <= ar_v;
     axil_bready  <= b_r;
     axil_rready  <= r_r;
+    dps_done     <= done_toggle;
 
     process(clock)
     begin
@@ -219,6 +234,9 @@ begin
                         if bus_is_write then
                             if axil_bvalid = '1' then
                                 b_r  <= '0';
+                                if step = s_write_c1 then
+                                    done_toggle <= not done_toggle;
+                                end if;
                                 step <= s_wait_dps;     -- after the enable write and after each C1 write
                             end if;
                         else

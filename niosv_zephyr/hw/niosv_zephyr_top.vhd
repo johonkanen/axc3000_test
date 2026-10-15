@@ -148,6 +148,7 @@ architecture rtl of niosv_zephyr_top is
     signal axil_bready  : std_logic;
 
     signal phase_shift : pll_phase_shift_record;
+    signal phase_done  : std_logic;    -- a read clock step written (hyperram_pll_reconfig)
 
     signal fpga_out : hyperram_ddr_fpga_out_record;
     signal fpga_in  : hyperram_ddr_fpga_in_record;
@@ -277,7 +278,8 @@ begin
             axil_bready  => axil_bready,
 
             dps_shift        => phase_shift.shift,
-            dps_shift_enable => phase_shift.shift_enable
+            dps_shift_enable => phase_shift.shift_enable,
+            dps_done         => phase_done
         );
 
     u_hyperram_pins : entity work.hyperram_pins
@@ -294,7 +296,16 @@ begin
             hr_dq     => hr_dq
         );
 
+    -- The read clock's phase is relative on this PLL (hyperram_pll_reconfig):
+    -- the calibration walks it down one 52 ps step at a time through a whole
+    -- 10 ns period (192 steps), tests every step, and uses the middle of the
+    -- widest passing window; under 1 ns (19 steps) fails the calibration
+    -- (status bit 1).
     u_hyperram_axi : entity work.hyperram_axi
+        generic map (
+            g_phase_steps => 192,
+            g_min_window  => 19
+        )
         port map (
             clock => rpll_clk0,
             reset => hyperram_reset,
@@ -333,6 +344,7 @@ begin
 
             phase_shift        => phase_shift,
             phase_shift_output => 0,
+            phase_shift_done   => phase_done,
             fpga_out           => fpga_out,
             fpga_in            => fpga_in
         );

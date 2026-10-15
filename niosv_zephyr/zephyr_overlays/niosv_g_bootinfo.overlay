@@ -4,10 +4,20 @@
  * touches otherwise: MCUboot writes it before it jumps (BOOT_SHARE_DATA),
  * the application's image management reads it (RETENTION_BOOTLOADER_INFO).
  * MCUboot and the application must both use this overlay; sram0 must end
- * at 0x3FF00 in both (mcuboot.overlay, niosv_g_hyperram_xip.overlay).
+ * at 0x3FEF0 in both (mcuboot.overlay, niosv_g_hyperram_xip.overlay).
+ *
+ * Below it, 16 bytes of boot flags (zephyr_module/src/warm_reboot.c): MCUboot
+ * marks there that it runs from its protected "ROM", so the application may
+ * reboot warm by jumping back to it.
  */
 
 / {
+	axc3000_boot_flags: memory@3fef0 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x3fef0 0x10>;
+		zephyr,memory-region = "BootFlags";
+	};
+
 	sram@3ff00 {
 		compatible = "zephyr,memory-region", "mmio-sram";
 		reg = <0x3ff00 0x100>;

@@ -61,6 +61,10 @@ for n, (addr, words) in enumerate(checks):
     print('if {$bad} { echo "VERIFY FAILED: $bad words wrong in segment at 0x%08x"; shutdown error }' % addr)
 print('echo "loaded %d bytes, verified"' % total)
 print("riscv exec_progbuf 0x0000100f")
+# start as from reset: interrupts off (the program that ran may have left
+# them on - a timer interrupt before the kernel is up crashes it)
+print("reg mstatus 0x00001800")
+print("reg mie 0")
 print("reg pc 0x%08x" % entry)
 print("resume")
 print('echo "started at 0x%08x"' % entry)

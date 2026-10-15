@@ -19,6 +19,8 @@
 #include <zephyr/sys/sys_io.h>
 #include <zephyr/logging/log.h>
 #include <string.h>
+#include <zephyr/sys/reboot.h>
+#include <axc3000/warm_reboot.h>
 
 LOG_MODULE_REGISTER(flash_axc3000_sdm_qspi, CONFIG_FLASH_LOG_LEVEL);
 
@@ -246,6 +248,37 @@ static int sdm_qspi_open(const struct device *dev)
 	return 0;
 }
 
+/*
+ * A QSPI command with the flash open, retried: a failed mailbox command can
+ * leave response words or an error behind, and the next commands would fail
+ * too - one hiccup while MCUboot loads the application would fail both slots,
+ * and MCUboot erases a slot it cannot load. So: drop what is left, reopen the
+ * flash, try again (QSPI_READ/WRITE/ERASE of the same range repeat safely).
+ */
+#define QSPI_ATTEMPTS 3
+
+static int qspi_cmd(const struct device *dev, uint32_t cmd, const uint32_t *args, int args_n,
+		    const uint32_t *wdata, int wdata_n, uint32_t *resp, int resp_max)
+{
+	struct sdm_qspi_data *data = dev->data;
+	int ret = -EIO;
+
+	for (int attempt = 0; attempt < QSPI_ATTEMPTS; attempt++) {
+		if (attempt > 0) {
+			LOG_WRN("mailbox command 0x%x at 0x%x: %d, retrying", cmd, args[0], ret);
+			data->open = false;     /* sdm_qspi_open drains and reopens */
+		}
+		ret = sdm_qspi_open(dev);
+		if (ret == 0) {
+			ret = mbox_cmd(dev, cmd, args, args_n, wdata, wdata_n, resp, resp_max);
+		}
+		if (ret == 0) {
+			break;
+		}
+	}
+	return ret;
+}
+
 static bool in_range(const struct device *dev, off_t offset, size_t len)
 {
 	const struct sdm_qspi_config *cfg = dev->config;
@@ -266,7 +299,6 @@ static int sdm_qspi_read(const struct device *dev, off_t offset, void *dst, size
 		return 0;
 	}
 	k_mutex_lock(&data->lock, K_FOREVER);
-	ret = sdm_qspi_open(dev);
 	while (ret == 0 && len > 0) {
 		uint32_t start = offset & ~3u;
 		uint32_t skip = offset - start;
@@ -274,7 +306,7 @@ static int sdm_qspi_read(const struct device *dev, off_t offset, void *dst, size
 		uint32_t args[2] = {start, words};
 		size_t n = MIN(len, words * 4 - skip);
 
-		ret = mbox_cmd(dev, QSPI_READ, args, 2, NULL, 0, data->buf, words);
+		ret = qspi_cmd(dev, QSPI_READ, args, 2, NULL, 0, data->buf, words);
 		if (ret == 0) {
 			memcpy(out, (uint8_t *)data->buf + skip, n);
 			out += n;
@@ -299,13 +331,12 @@ static int sdm_qspi_write(const struct device *dev, off_t offset, const void *sr
 		return -EINVAL;
 	}
 	k_mutex_lock(&data->lock, K_FOREVER);
-	ret = sdm_qspi_open(dev);
 	while (ret == 0 && len > 0) {
 		uint32_t words = MIN(len / 4, MAX_WORDS);
 		uint32_t args[2] = {(uint32_t)offset, words};
 
 		memcpy(data->buf, in, words * 4);
-		ret = mbox_cmd(dev, QSPI_WRITE, args, 2, data->buf, words, NULL, 0);
+		ret = qspi_cmd(dev, QSPI_WRITE, args, 2, data->buf, words, NULL, 0);
 		in += words * 4;
 		offset += words * 4;
 		len -= words * 4;
@@ -320,20 +351,19 @@ static int sdm_qspi_write(const struct device *dev, off_t offset, const void *sr
 static int sdm_qspi_erase(const struct device *dev, off_t offset, size_t size)
 {
 	struct sdm_qspi_data *data = dev->data;
-	int ret;
+	int ret = 0;
 
 	if (!in_range(dev, offset, size) || (offset % PAGE_SIZE) || (size % PAGE_SIZE)) {
 		return -EINVAL;
 	}
 	k_mutex_lock(&data->lock, K_FOREVER);
-	ret = sdm_qspi_open(dev);
 	while (ret == 0 && size > 0) {
 		/* the largest sector that fits the alignment and what is left */
 		uint32_t sector = (offset % 0x10000 == 0 && size >= 0x10000) ? 0x10000 :
 				  (offset % 0x8000 == 0 && size >= 0x8000) ? 0x8000 : PAGE_SIZE;
 		uint32_t args[2] = {(uint32_t)offset, sector / 4};
 
-		ret = mbox_cmd(dev, QSPI_ERASE, args, 2, NULL, 0, NULL, 0);
+		ret = qspi_cmd(dev, QSPI_ERASE, args, 2, NULL, 0, NULL, 0);
 		offset += sector;
 		size -= sector;
 	}
@@ -426,12 +456,12 @@ int axc3000_sdm_rsu_image_update(uint64_t flash_address)
 
 #if defined(CONFIG_AXC3000_SDM_REBOOT)
 /*
- * Reboot = reconfigure the FPGA from the bitstream that is running (the SDM's
- * RSU_IMAGE_UPDATE with RSU_STATUS's current image address). A CPU-only
- * restart would not do: MCUboot lives in the on-chip RAM's initial contents,
- * which the application has since overwritten - reconfiguration reloads
- * them. Only when RSU_STATUS fails (e.g. no RSU image in the flash) is it a
- * plain jump to the reset vector.
+ * Cold reboot = reconfigure the FPGA from the bitstream that is running (the
+ * SDM's RSU_IMAGE_UPDATE with RSU_STATUS's current image address), which
+ * reloads MCUboot into the on-chip RAM. Warm reboot (mcumgr's reset) = a
+ * jump back to MCUboot, when it is restartable (src/warm_reboot.c), else
+ * cold. Only when RSU_STATUS fails (e.g. no RSU image in the flash) is a
+ * cold reboot a plain jump to the reset vector.
  */
 void sys_arch_reboot(int type)
 {
@@ -440,14 +470,20 @@ void sys_arch_reboot(int type)
 	uint32_t status[9] = {0};
 	int ret;
 
-	ARG_UNUSED(type);
 	(void)irq_lock();
 
-	/* the SDM needs the flash itself */
+	/* the SDM needs the flash itself; and MCUboot opens it again */
 	if (data->open) {
 		(void)mbox_cmd(dev, QSPI_CLOSE, NULL, 0, NULL, 0, NULL, 0);
 		data->open = false;
 	}
+#if defined(CONFIG_AXC3000_WARM_REBOOT)
+	if (type == SYS_REBOOT_WARM && axc3000_warm_reboot_possible()) {
+		axc3000_warm_reboot();
+	}
+#else
+	ARG_UNUSED(type);
+#endif
 	ret = mbox_cmd(dev, RSU_STATUS, NULL, 0, NULL, 0, status, ARRAY_SIZE(status));
 	if (ret == 0) {
 		uint32_t image[2] = {status[0], status[1]};   /* its flash address, 64-bit */

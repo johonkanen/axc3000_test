@@ -18,9 +18,12 @@ int main(void)
 	for (int i = 0; i < 20; i++) {
 		uint32_t status = HR_STATUS;
 
-		printk("hr status=0x%08x calibrated=%d passed=%d debug=0x%08x%08x timeouts=%u\n",
-		       status, status & 1, !(status & 2),
-		       HR_DEBUG_HI, HR_DEBUG_LO, HR_TIMEOUTS);
+		/* the relative-phase layout (zephyr_module <axc3000/hyperram.h>) */
+		printk("hr status=0x%08x calibrated=%d passed=%d step=%u window=%u (%u ps) "
+		       "other=%u lo_first=%d debug=0x%08x%08x timeouts=%u\n",
+		       status, status & 1, !(status & 2), (status >> 4) & 0xff,
+		       (status >> 12) & 0xff, ((status >> 12) & 0xff) * 52, (status >> 20) & 0xff,
+		       (status >> 2) & 1, HR_DEBUG_HI, HR_DEBUG_LO, HR_TIMEOUTS);
 		k_msleep(500);
 	}
 	return 0;

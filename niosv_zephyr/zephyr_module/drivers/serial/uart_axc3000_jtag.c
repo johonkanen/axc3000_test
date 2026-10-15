@@ -10,7 +10,9 @@
  * FIFO is full, wait (interrupts on) only while a host has shown activity
  * (the controller's AC bit, set whenever the host polls) - give up on it
  * after HOST_TIMEOUT_MS of no progress and drop characters until it shows
- * up again.
+ * up again. The first time the FIFO fills with no host seen yet, wait up to
+ * HOST_PROBE_MS for its activity: at boot the 64 bytes fill before the host
+ * has polled once (only the first line of the boot banner came through).
  */
 #define DT_DRV_COMPAT axc3000_jtag_uart
 
@@ -27,6 +29,7 @@
 #define CTRL_WSPACE(c) ((c) >> 16)
 
 #define HOST_TIMEOUT_MS 100
+#define HOST_PROBE_MS   50
 
 struct jtag_uart_config {
 	mm_reg_t base;
@@ -34,7 +37,13 @@ struct jtag_uart_config {
 
 struct jtag_uart_data {
 	bool host_present;
+	bool probed;        /* looked for a host once already */
 };
+
+static uint32_t ms_to_cycles(uint32_t ms)
+{
+	return (uint32_t)((uint64_t)ms * sys_clock_hw_cycles_per_sec() / 1000);
+}
 
 static void jtag_uart_poll_out(const struct device *dev, unsigned char c)
 {
@@ -51,6 +60,17 @@ static void jtag_uart_poll_out(const struct device *dev, unsigned char c)
 		sys_write32(c, cfg->base + REG_DATA);
 		return;
 	}
+	if (!data->host_present && !data->probed) {
+		data->probed = true;
+		start = k_cycle_get_32();
+		do {
+			if (sys_read32(cfg->base + REG_CONTROL) & CTRL_AC) {
+				data->host_present = true;
+				sys_write32(CTRL_AC, cfg->base + REG_CONTROL);
+				break;
+			}
+		} while (k_cycle_get_32() - start < ms_to_cycles(HOST_PROBE_MS));
+	}
 	if (!data->host_present) {
 		return;     /* nobody listening: drop */
 	}
@@ -59,7 +79,7 @@ static void jtag_uart_poll_out(const struct device *dev, unsigned char c)
 	 * cycle counter - it runs before the kernel's timer does)
 	 */
 	start = k_cycle_get_32();
-	timeout = (uint32_t)((uint64_t)HOST_TIMEOUT_MS * sys_clock_hw_cycles_per_sec() / 1000);
+	timeout = ms_to_cycles(HOST_TIMEOUT_MS);
 	do {
 		ctrl = sys_read32(cfg->base + REG_CONTROL);
 		if (CTRL_WSPACE(ctrl) > 0) {
