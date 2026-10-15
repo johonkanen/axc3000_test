@@ -300,11 +300,16 @@ begin
     -- the calibration walks it down one 52 ps step at a time through a whole
     -- 10 ns period (192 steps), tests every step, and uses the middle of the
     -- widest passing window; under 1 ns (19 steps) fails the calibration
-    -- (status bit 1).
+    -- (status bit 1). Right after configuration the PLL acknowledges some
+    -- steps before it makes them (seen on the board: a "window" of 177 steps,
+    -- 1 in 4 cold boots reading garbage), so the step is found by a seek on
+    -- what the reads show, then tested again; a failure restarts it all, up
+    -- to 6 times.
     u_hyperram_axi : entity work.hyperram_axi
         generic map (
-            g_phase_steps => 192,
-            g_min_window  => 19
+            g_phase_steps  => 192,
+            g_min_window   => 19,
+            g_cal_attempts => 6
         )
         port map (
             clock => rpll_clk0,
