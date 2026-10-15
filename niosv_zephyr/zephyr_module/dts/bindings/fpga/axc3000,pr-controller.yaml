@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  The PR_DEMO hardware's partial reconfiguration (niosv_zephyr/hw
+  build_niosv_system.tcl): reg[0] Altera's Partial Reconfiguration
+  Controller IP (pr0, Avalon-MM, 32-bit data), reg[1] pio_pr_ctrl (bit 0
+  freezes the PR region's outputs, bit 1 holds it in reset).
+
+compatible: "axc3000,pr-controller"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true

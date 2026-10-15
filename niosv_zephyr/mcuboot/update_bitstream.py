@@ -5,6 +5,7 @@ zephyr_module/src/rsu_mgmt.c in the running application).
     update_bitstream.py status
     update_bitstream.py program hw/output_files/application.rpd [--slot N] [--load]
     update_bitstream.py load N
+    update_bitstream.py pr hw/output_files/impl_green.blinker.rbf
 
 program: uploads an RSU application image (hw/flash/make_flash_images.sh's
 application.rpd) into a HyperRAM buffer on the board, which programs it into
@@ -12,6 +13,10 @@ an RSU slot with libRSU, verifies it and makes it the highest priority - the
 SDM boots it at the next configuration from flash (power-up, or --load now),
 and falls back to the other slots / the factory image if it fails. Default
 slot: the one that is not running. The factory image is never written.
+
+pr: partial reconfiguration (the PR_DEMO hardware, an application built
+with -DPR_DEMO=1): uploads a persona's PR bitstream (hw/pr/build_personas.sh)
+and programs it into the PR region at once - nothing in the flash changes.
 
 Run with the project's venv (smpclient): niosv_zephyr/.venv/bin/python3
 """
@@ -103,6 +108,21 @@ class LoadRequest(message.WriteRequest, _Rsu):
     slot: int
 
 
+class PrResponse(message.WriteResponse):
+    _GROUP_ID = GROUP
+    _COMMAND_ID = 4
+    status: int     # the PR controller's: 3 done, 4 / 6 an error
+    step: int       # 0 done, else where it failed: 1 start, 2 stream, 3 finish
+    ms: int
+
+
+class PrRequest(message.WriteRequest, _Rsu):
+    _GROUP_ID = GROUP
+    _COMMAND_ID = 4
+    _Response = PrResponse
+    crc: int
+
+
 def check(rsp, what):
     if isinstance(rsp, (RsuErrorV1, RsuErrorV2)):
         sys.exit(f"{what} failed: {rsp}")
@@ -132,6 +152,8 @@ async def main():
     p.add_argument("--load", action="store_true", help="reconfigure from it now")
     p = sub.add_parser("load", help="reconfigure from an RSU slot now")
     p.add_argument("slot", type=int)
+    p = sub.add_parser("pr", help="program a PR persona (.rbf) into the PR region")
+    p.add_argument("rbf")
     a = ap.parse_args()
 
     line_length, line_buffers = (512, 2) if a.small else (4096, 4)
@@ -149,14 +171,14 @@ async def main():
             print(f"reconfiguring from slot {a.slot}")
             return
 
-        image = open(a.rpd, "rb").read()
-        slot = a.slot
-        if slot is None:
+        image = open(a.rbf if a.cmd == "pr" else a.rpd, "rb").read()
+        slot = a.slot if a.cmd == "program" else None
+        if a.cmd == "program" and slot is None:
             idle = [i for i, s in enumerate(st.slots) if s["addr"] != st.current]
             if not idle:
                 sys.exit("no slot that is not running")
             slot = min(idle, key=lambda i: st.slots[i]["prio"])
-        if len(image) > st.slots[slot]["size"]:
+        if a.cmd == "program" and len(image) > st.slots[slot]["size"]:
             sys.exit(f"{len(image)} bytes do not fit slot {slot}")
 
         t0 = time.time()
@@ -169,6 +191,16 @@ async def main():
             print(f"\r  uploaded {off} / {len(image)}", end="", flush=True)
         t1 = time.time()
         print(f" - {len(image) / (t1 - t0) / 1e3:.0f} kB/s")
+
+        if a.cmd == "pr":
+            rsp = check(await client.request(PrRequest(crc=zlib.crc32(image))), "pr")
+            if rsp.step:
+                steps = {1: "start", 2: "stream", 3: "finish"}
+                sys.exit(f"PR failed in {steps.get(rsp.step, rsp.step)}: status {rsp.status} "
+                         "(the region stays frozen and in reset)")
+            print(f"  persona programmed in {rsp.ms} ms on the board, "
+                  f"{time.time() - t0:.1f} s in all")
+            return
 
         print(f"programming slot {slot} ({st.slots[slot]['name']}) ...")
         rsp = check(await client.request(ProgramRequest(slot=slot, crc=zlib.crc32(image)),

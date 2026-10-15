@@ -5,6 +5,16 @@
 # IP's generated SDC (read before this file) already creates its clock, as
 # u_rpll|pll_100_refclk, and rpll0's output clocks - a create_clock here
 # would only be ignored.
+#
+# Except in a partial reconfiguration implementation revision
+# (pr/build_personas.sh): it imports the static region with its IP's SDC
+# files from static.qdb and reads them after this file, so the clocks below
+# would not exist yet and every constraint on them would be dropped. Read
+# rpll0's SDC here then - it creates only the clocks that do not exist, so
+# its own later pass adds nothing.
+if {[get_collection_size [get_clocks -nowarn {u_rpll|pll_100_outclk3}]] == 0} {
+    source [lindex [glob ip/rpll0/rpll0/altera_iopll_*/synth/rpll0_altera_iopll_*.sdc] 0]
+}
 
 derive_clock_uncertainty
 

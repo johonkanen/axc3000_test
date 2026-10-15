@@ -28,6 +28,11 @@ list(APPEND EXTRA_DTC_OVERLAY_FILE
      ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_flash_layout.overlay
      ${NIOSV_ZEPHYR}/zephyr_overlays/${BOOTINFO_OVERLAY}.overlay
      ${CMAKE_CURRENT_LIST_DIR}/app.overlay)
+# -DPR_DEMO=1: the partial reconfiguration demo hardware (PR_DEMO=1
+# hw/build_all.sh) - persona programming over mcumgr (rsu_mgmt command 4)
+if(PR_DEMO)
+  list(APPEND EXTRA_DTC_OVERLAY_FILE ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_pr.overlay)
+endif()
 list(APPEND EXTRA_CONF_FILE ${NIOSV_ZEPHYR}/mcuboot/app_ram_load.conf)
 if(SMALL_OCRAM)
   list(APPEND EXTRA_CONF_FILE ${NIOSV_ZEPHYR}/zephyr_overlays/niosv_g_small_ocram.conf)

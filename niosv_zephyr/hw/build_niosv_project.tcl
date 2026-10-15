@@ -90,6 +90,7 @@ set_global_assignment -name VHDL_FILE $this_file_path/hyperram_pll_reconfig.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/uart/sync_fifo.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/uart/uart_serial.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/uart/uart_axi4lite.vhd
+set_global_assignment -name VHDL_FILE $this_file_path/pr/blinker_blue.vhd
 set_global_assignment -name VHDL_FILE $this_file_path/niosv_zephyr_top.vhd
 
 # ------------------------------------------------------------------- IP
@@ -108,7 +109,9 @@ set_global_assignment -name QIP_FILE $this_file_path/niosv_zephyr_sys/niosv_zeph
 # before every regenerate, so exactly one match per instance is expected.
 # Exact instance name plus an optional numeric suffix only - a bare
 # ${inst}* glob would also match cb_hr when looking for cb.
-foreach inst {cb cpu0 ram0 rb rr0 uart0 pio_hr_status pio_hr_debug_lo pio_hr_debug_hi pio_hr_timeouts cb_hr rb_hr hr_axi uart_axi uart_irq mbox0} {
+set sys_instances {cb cpu0 ram0 rb rr0 uart0 pio_hr_status pio_hr_debug_lo pio_hr_debug_hi pio_hr_timeouts cb_hr rb_hr hr_axi uart_axi uart_irq mbox0 pio_pr_ctrl}
+if {[info exists ::env(PR_DEMO)] && $::env(PR_DEMO) == 1} { lappend sys_instances pr0 }
+foreach inst $sys_instances {
     set matches {}
     foreach q [glob -nocomplain $this_file_path/ip/niosv_zephyr_sys/niosv_zephyr_sys_${inst}*/niosv_zephyr_sys_${inst}*.qip] {
         if {[regexp "^niosv_zephyr_sys_${inst}(_\\d+)?\\.qip\$" [file tail $q]]} {
@@ -204,6 +207,30 @@ set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to uart_txd
 set_instance_assignment -name CURRENT_STRENGTH_NEW 6MA -to uart_txd
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to uart_rxd   ;# idle high if undriven
 
+
+# RGB LED blue and green (bank 5A, docs/mkr_pinout.md) - the PR demo's
+set_location_assignment PIN_AK20 -to led_b -comment IOBANK_5A
+set_location_assignment PIN_AK21 -to led_g -comment IOBANK_5A
+set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to led_b
+set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to led_g
+
+# ------------------------------------------------------ partial reconfiguration
+# PR_DEMO=1 (build_all.sh): the LED blinker (niosv_zephyr_top.vhd, hw/pr/) as a
+# reconfigurable partition in a reserved, core-only Logic Lock region; this
+# is then the PR base revision (persona "blue"), hw/pr/build_personas.sh
+# makes the others. The region: 10 x 10 LABs in the core (the device's core
+# spans (0, 5) to (60, 51), one clock sector).
+if {[info exists ::env(PR_DEMO)] && $::env(PR_DEMO) == 1} {
+    set_parameter -name g_pr_demo true
+    set_global_assignment -name REVISION_TYPE PR_BASE
+    set pr_inst pr_demo.u_blinker
+    set_instance_assignment -name PARTITION blinker -to $pr_inst -entity niosv_zephyr_top
+    set_instance_assignment -name PARTIAL_RECONFIGURATION_PARTITION ON -to $pr_inst -entity niosv_zephyr_top
+    set_instance_assignment -name PLACE_REGION "X40 Y40 X49 Y49" -to $pr_inst
+    set_instance_assignment -name ROUTE_REGION "X39 Y39 X50 Y50" -to $pr_inst
+    set_instance_assignment -name RESERVE_PLACE_REGION ON -to $pr_inst
+    set_instance_assignment -name CORE_ONLY_PLACE_REGION ON -to $pr_inst
+}
 
 # --------------------------------------------------------------- commit
 

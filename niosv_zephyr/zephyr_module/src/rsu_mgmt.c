@@ -16,6 +16,11 @@
  *                      1 erase, 2 program - also makes it the highest
  *                      priority, 3 verify)}
  *   3 load    (write) {"slot"}: reconfigure from that slot now
+ *   4 pr      (write) {"crc"} -> {"status" (the PR controller's last, 3 =
+ *                      done), "step" (0 done, else where it failed: 1 start,
+ *                      2 stream, 3 finish), "ms"}: program the uploaded image
+ *                      - a PR bitstream (persona) - into the PR region
+ *                      (CONFIG_AXC3000_PR_MGMT, the PR_DEMO hardware)
  *
  * mcuboot/update_bitstream.py is the host side.
  */
@@ -46,6 +51,7 @@ BUILD_ASSERT(CONFIG_MCUMGR_TRANSPORT_WORKQUEUE_STACK_SIZE >= 8192,
 #define RSU_MGMT_UPLOAD  1
 #define RSU_MGMT_PROGRAM 2
 #define RSU_MGMT_LOAD    3
+#define RSU_MGMT_PR      4
 
 #define MAX_IMAGE (4 * 1024 * 1024)       /* an RSU slot */
 
@@ -246,11 +252,137 @@ static int rsu_mgmt_load(struct smp_streamer *ctxt)
 	return MGMT_ERR_EOK;
 }
 
+#ifdef CONFIG_AXC3000_PR_MGMT
+/*
+ * Altera's PR Controller IP, Avalon-MM (ip/.../altera_pr_mm_*.sv): word 0
+ * data (written words go to the SDM - only while a PR is in progress -,
+ * back-pressured: the CPU's store waits), word 1 CSR (write bit 0 starts;
+ * read bits 3:1 the status: 1 system busy, 2 in progress, 3 done, 4 or 6
+ * an error). pio_pr_ctrl's data register: bit 0 freeze, bit 1 reset.
+ */
+#define PR_NODE      DT_NODELABEL(pr_controller)
+#define PR_DATA      ((volatile uint32_t *)DT_REG_ADDR_BY_NAME(PR_NODE, pr))
+#define PR_CSR       (PR_DATA + 1)
+#define PR_CTRL      ((volatile uint32_t *)DT_REG_ADDR_BY_NAME(PR_NODE, ctrl))
+#define PR_FREEZE    BIT(0)
+#define PR_RESET     BIT(1)
+
+#define PR_ST_BUSY   1
+#define PR_ST_PROG   2
+#define PR_ST_DONE   3
+
+static uint32_t pr_status(void)
+{
+	return (*PR_CSR >> 1) & 7;
+}
+
+static bool pr_error(uint32_t st)
+{
+	return st == 4 || st == 6;
+}
+
+/* polls for want (or an error) for up to 1 s */
+static uint32_t pr_wait(uint32_t want)
+{
+	int64_t end = k_uptime_get() + 1000;
+	uint32_t st;
+
+	do {
+		st = pr_status();
+		if (st == want || pr_error(st)) {
+			break;
+		}
+	} while (k_uptime_get() < end);
+	return st;
+}
+
+static int rsu_mgmt_pr(struct smp_streamer *ctxt)
+{
+	zcbor_state_t *zsd = ctxt->reader->zs;
+	zcbor_state_t *zse = ctxt->writer->zs;
+	uint32_t crc = 0;
+	size_t decoded;
+	uint32_t st, step = 1;
+	int64_t t0;
+
+	struct zcbor_map_decode_key_val pr_decode[] = {
+		ZCBOR_MAP_DECODE_KEY_DECODER("crc", zcbor_uint32_decode, &crc),
+	};
+
+	if (zcbor_map_decode_bulk(zsd, pr_decode, ARRAY_SIZE(pr_decode), &decoded)) {
+		return MGMT_ERR_EINVAL;
+	}
+	if (!image || image_have != image_len || image_len % 4) {
+		LOG_ERR("pr: image incomplete (%u of %u)", image_have, image_len);
+		return MGMT_ERR_EINVAL;
+	}
+	if (crc32_ieee(image, image_len) != crc) {
+		LOG_ERR("pr: CRC mismatch");
+		return MGMT_ERR_EBADSTATE;
+	}
+
+	t0 = k_uptime_get();
+	/* the region's outputs held, its logic in reset (a few of its 25 MHz
+	 * clock's cycles through the synchroniser)
+	 */
+	*PR_CTRL = PR_FREEZE | PR_RESET;
+	k_busy_wait(10);
+
+	*PR_CSR = 1;
+	st = pr_wait(PR_ST_PROG);
+	if (st == PR_ST_PROG) {
+		const uint32_t *w = (const uint32_t *)image;
+		uint32_t n = image_len / 4;
+
+		bool failed = false;
+
+		step = 2;
+		/* all of it even after an error: the PR IP user guide's recovery
+		 * (Agilex) drains the rest of the bitstream before a retry
+		 */
+		for (uint32_t i = 0; i < n; i++) {
+			*PR_DATA = w[i];
+			if ((i & 1023) == 1023 && !failed && pr_error(st = pr_status())) {
+				failed = true;
+			}
+		}
+		if (!failed) {
+			step = 3;
+			st = pr_wait(PR_ST_DONE);
+		}
+	}
+	if (st == PR_ST_DONE) {
+		step = 0;
+		/* reset released while still frozen, then the outputs */
+		*PR_CTRL = PR_FREEZE;
+		k_busy_wait(10);
+		*PR_CTRL = 0;
+		LOG_INF("PR: %u bytes in %lld ms", image_len, k_uptime_get() - t0);
+		k_heap_free(&hyperram_heap, image);
+		image = NULL;
+		image_len = image_have = 0;
+	} else {
+		/* the region stays frozen and in reset: no half-programmed logic
+		 * drives anything
+		 */
+		LOG_ERR("PR failed: step %u, status %u", step, st);
+	}
+
+	return zcbor_tstr_put_lit(zse, "status") && zcbor_uint32_put(zse, st) &&
+	       zcbor_tstr_put_lit(zse, "step") && zcbor_uint32_put(zse, step) &&
+	       zcbor_tstr_put_lit(zse, "ms") && zcbor_uint32_put(zse, k_uptime_get() - t0) ?
+	       MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
+}
+#endif
+
 static const struct mgmt_handler rsu_mgmt_handlers[] = {
 	[RSU_MGMT_STATUS] = {.mh_read = rsu_mgmt_status, .mh_write = NULL},
 	[RSU_MGMT_UPLOAD] = {.mh_read = NULL, .mh_write = rsu_mgmt_upload},
 	[RSU_MGMT_PROGRAM] = {.mh_read = NULL, .mh_write = rsu_mgmt_program},
 	[RSU_MGMT_LOAD] = {.mh_read = NULL, .mh_write = rsu_mgmt_load},
+#ifdef CONFIG_AXC3000_PR_MGMT
+	[RSU_MGMT_PR] = {.mh_read = NULL, .mh_write = rsu_mgmt_pr},
+#endif
 };
 
 static struct mgmt_group rsu_mgmt_group = {

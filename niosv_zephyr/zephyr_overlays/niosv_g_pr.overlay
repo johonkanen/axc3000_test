@@ -1,0 +1,13 @@
+/*
+ * Partial reconfiguration of the PR_DEMO hardware (PR_DEMO=1
+ * hw/build_all.sh): the PR controller pr0 at 0xD0000 and pio_pr_ctrl at
+ * 0xA0040. Only for that hardware - without it, 0xD0000 decodes to nothing.
+ */
+
+&{/soc} {
+	pr_controller: pr-controller@d0000 {
+		compatible = "axc3000,pr-controller";
+		reg = <0xd0000 0x40>, <0xa0040 0x10>;
+		reg-names = "pr", "ctrl";
+	};
+};

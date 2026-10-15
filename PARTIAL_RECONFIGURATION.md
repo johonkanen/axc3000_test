@@ -164,6 +164,97 @@ command (only RSU_* and QSPI_*), so the Mailbox Client is not the PR path.
 - PR duration and bitstream size scale with region area; no Agilex 3 figures
   published.
 
+## 7. Prototype on the AXC3000 (2026-10-15)
+
+`PR_DEMO=1 niosv_zephyr/hw/build_all.sh` builds the whole Nios V system
+(CPU, HyperRAM, UART, SDM mailbox, the PR controller `pr0` at `0xD0000`) as
+the static region, and one PR region with an LED blinker; then
+`niosv_zephyr/hw/pr/build_personas.sh` builds the second persona.
+
+| Persona | Entity | LED |
+|---|---|---|
+| base (in the `.sof`) | `blinker` (`hw/pr/blinker_blue.vhd`) | blue (AK20) blinks ~0.75 Hz |
+| `impl_green` | `blinker_green` (`hw/pr/blinker_green.vhd`) | green (AK21), twice as fast |
+
+**Confirmed on Quartus Pro 26.1.1 with this license:** PR compiles, fits and
+assembles for the A3CY100 (the tiny tests in a scratch project first, then
+this design).
+
+**Flow:**
+- Base revision: `REVISION_TYPE PR_BASE`; `PARTITION` +
+  `PARTIAL_RECONFIGURATION_PARTITION` on `pr_demo.u_blinker` (inside a VHDL
+  generate the instance path is `<generate label>.<instance>`).
+- Region: Logic Lock place region `X40 Y40 X49 Y49`, route region one LAB
+  wider, reserved, core-only (assigned without `-entity`).
+- `quartus_cdb --export_block root_partition --snapshot final
+  --include_sdc_entity_in_partition` -> `static.qdb`.
+- Implementation revision per persona: `REVISION_TYPE PR_IMPL`,
+  `QDB_FILE_PARTITION static.qdb -to |`, `ENTITY_REBINDING <entity> -to
+  pr_demo.u_blinker`.
+- The assembler writes the PR bitstream itself: `<revision>.blinker.rbf`.
+
+**Numbers (A3CY100, -7S):**
+
+| | Value |
+|---|---|
+| Region | 10 x 10 LABs = 1,000 ALMs, 4,000 registers (persona uses 15 ALMs) |
+| Persona `.rbf` | 315,392 B, same for both personas - set by the region size, not the logic (~315 B per ALM of region) |
+| Full `.sof` for comparison | 1,396,290 B |
+| Static cost of PR | +890 ALMs (7,450 -> 8,340; `pr0` ~170 of them), +8 M20K (164 -> 172) |
+| Timing | base and persona identical: setup +0.554, hold +0.024 ns - the static region is locked |
+| Upload at 12 MBaud (measured RSU rate, 152 kB/s) | ~2 s per persona |
+
+**Build times** (WSL2, one build at a time):
+
+| Step | Default build | PR base revision | Persona (`build_personas.sh`) |
+|---|---|---|---|
+| qsys + project setup | | ~87 s | export 4 s + revision 1 s |
+| Synthesis | 1:09 | 2:23 | 0:28 |
+| Fit | 2:27 | 2:51 | 2:34 |
+| STA | 0:06 | 0:08 | 0:09 |
+| Assembler | 0:10 | 0:16 | 0:16 |
+| **Total** | | **425 s** | **220 s** |
+
+A persona synthesises only its own entity, but the fitter still takes ~2.5
+min: it loads and checks the whole placed static region. A change to the
+static region means rebuilding the base and then every persona.
+
+**Gotchas hit:**
+- No initial values (`signal x : ... := ...`) in the PR region (critical
+  warning): use the region reset.
+- SDC read order: the implementation revision reads the project's
+  `niosv_zephyr.sdc` *before* the static region's IP SDC files from
+  `static.qdb`, so its `set_clock_groups` / false paths on the PLL's clocks
+  matched nothing - the first persona build "failed" timing (-2.6 ns setup,
+  -3.0 ns hold on CDC synchronisers). Fix in `niosv_zephyr.sdc`: if the PLL
+  clocks do not exist yet, source rpll0's IP SDC first (it creates only
+  missing clocks, so its own later pass is a no-op). The base revision is
+  unchanged (same slacks).
+- `new_variant.sh` copies only tracked files: untracked `pr/` must be copied
+  by hand until it is committed.
+
+**Runtime path** (built, **not run on hardware yet** - the board is in use):
+- `pio_pr_ctrl` (`0xA0040`): bit 0 freezes the region's outputs (LEDs held
+  off), bit 1 resets it; synchronised to its 25 MHz clock in
+  `niosv_zephyr_top.vhd`.
+- `rsu_mgmt` command 4 (`CONFIG_AXC3000_PR_MGMT`, app built with
+  `-DPR_DEMO=1`, overlay `zephyr_overlays/niosv_g_pr.overlay`): the image is
+  uploaded with the RSU upload command into HyperRAM. Then:
+  1. freeze + reset;
+  2. CSR start, wait for status 2 (in progress);
+  3. write every word to the data register (back-pressured);
+  4. wait for status 3 (done);
+  5. release reset, then freeze.
+
+  On an error, it streams the rest anyway (the user guide's recovery) and
+  leaves the region frozen.
+- Host: `niosv_zephyr/mcuboot/update_bitstream.py pr
+  hw/output_files/impl_green.blinker.rbf`. For the first hardware test,
+  `quartus_pgm` over JTAG with the `.rbf` is the quicker check.
+- Open: the PR time itself (the IP's cycle counters, words 5-A, will give
+  it); whether the base `.sof`'s own persona file (`niosv_zephyr.blinker.rbf`)
+  switches back to blue; the LED polarity (`g_led_on`).
+
 ## What this means for this project
 
 - **PR path:** the Partial Reconfiguration Controller IP, not our Mailbox

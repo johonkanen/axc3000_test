@@ -61,11 +61,14 @@ echo "CPU clock: $CPU_CLOCK_MHZ MHz"
 SMALL_OCRAM="${SMALL_OCRAM:-0}"
 # NIOSV_FPU=1 | nodiv: the Nios V/g FPU (F extension), nodiv without FSQRT/FDIV
 NIOSV_FPU="${NIOSV_FPU:-0}"
+# PR_DEMO=1: the partial reconfiguration demo (PR controller pr0, the LED
+# blinker region; this build is the base revision - hw/pr/build_personas.sh)
+export PR_DEMO="${PR_DEMO:-0}"
 if [ "$SMALL_OCRAM" = 1 ]; then RAM0_END=0x10FFF; else RAM0_END=0x3FFFF; fi
-echo "Options: SMALL_OCRAM=$SMALL_OCRAM NIOSV_FPU=$NIOSV_FPU (ram0 to $RAM0_END)"
+echo "Options: SMALL_OCRAM=$SMALL_OCRAM NIOSV_FPU=$NIOSV_FPU PR_DEMO=$PR_DEMO (ram0 to $RAM0_END)"
 
 step "qsys-script: build the Platform Designer system"
-qsys-script --cmd="set ::cpu_mhz $CPU_CLOCK_MHZ; set ::small_ocram $SMALL_OCRAM; set ::fpu $NIOSV_FPU" \
+qsys-script --cmd="set ::cpu_mhz $CPU_CLOCK_MHZ; set ::small_ocram $SMALL_OCRAM; set ::fpu $NIOSV_FPU; set ::pr_demo $PR_DEMO" \
     --script=build_niosv_system.tcl
 mkdir -p output_files
 echo "$RAM0_END" > output_files/ram0_end      # for update_mcuboot.sh

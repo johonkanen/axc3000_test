@@ -130,3 +130,17 @@ config AXC3000_RSU_MGMT
 	  (mcuboot/update_bitstream.py). Needs
 	  MCUMGR_TRANSPORT_WORKQUEUE_STACK_SIZE >= 12288 (libRSU's image
 	  blocks live on that stack).
+
+DT_COMPAT_AXC3000_PR_CONTROLLER := axc3000,pr-controller
+
+config AXC3000_PR_MGMT
+	bool "Partial reconfiguration over mcumgr (command 4 of group 64)"
+	default $(dt_compat_enabled,$(DT_COMPAT_AXC3000_PR_CONTROLLER))
+	depends on AXC3000_RSU_MGMT
+	help
+	  Program a persona of the PR_DEMO hardware's PR region (a PR
+	  bitstream, hw/pr/build_personas.sh's output_files/*.blinker.rbf)
+	  uploaded with rsu_mgmt's upload command, through Altera's PR
+	  Controller IP: freeze and reset the region, stream the image, release
+	  it (mcuboot/update_bitstream.py pr). Needs
+	  zephyr_overlays/niosv_g_pr.overlay.

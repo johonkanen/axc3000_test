@@ -144,6 +144,21 @@ MCUboot (on-chip RAM), which then boots the app from its flash slots as
 before. The library is Altera's uniLibRSU (`zephyr_module/lib/unilibrsu`); its
 flash layer refuses writes outside the RSU tables and P1/P2.
 
+## 9. Partial reconfiguration demo (not run on hardware yet)
+
+```
+cd hw && PR_DEMO=1 ./build_all.sh && pr/build_personas.sh && cd ..   # ~7 + ~4 min
+west build -b niosv_g -d build_smp_pr ../apps/smp_app -- -DAPP_VERSION=1.7.0 -DPR_DEMO=1
+.venv/bin/python3 mcuboot/update_bitstream.py pr hw/output_files/impl_green.blinker.rbf
+.venv/bin/python3 mcuboot/update_bitstream.py pr hw/output_files/niosv_zephyr.blinker.rbf
+```
+
+The PR_DEMO hardware adds a PR region with an LED blinker (blue in the base
+`.sof`, green in `impl_green`) and the PR controller at `0xD0000`; `pr`
+uploads a persona and programs it into the region while everything else
+keeps running. Build `-DPR_DEMO=1` apps only for PR_DEMO hardware.
+Details and numbers: `../PARTIAL_RECONFIGURATION.md` section 7.
+
 ## Debug access (JTAG)
 
 - `hw/download.sh <elf>` - load and run an on-chip-RAM or XIP ELF (word by

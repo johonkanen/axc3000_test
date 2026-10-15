@@ -82,6 +82,13 @@ library niosv_zephyr_sys;
 library emif_cal;
 
 entity niosv_zephyr_top is
+    generic (
+        -- PR_DEMO=1 (build_all.sh): the reconfigurable LED blinker region
+        -- (hw/pr/); without it the LEDs are held off
+        g_pr_demo : boolean := false;
+        -- the level that lights the RGB LED (not documented for the AXC3000)
+        g_led_on  : std_logic := '1'
+    );
     port (
         clk_clk       : in std_logic;  -- 25 MHz board oscillator, pin A7
         reset_reset_n : in std_logic;  -- board reset, active low, pin A12
@@ -97,7 +104,11 @@ entity niosv_zephyr_top is
         -- FTDI serial port (USB-Blaster UART channel B), 12 MBaud (the FTDI's
         -- maximum, tested: 1.2 MB/s full duplex without errors)
         uart_rxd    : in  std_logic;   -- AG23, board TX -> FPGA RX
-        uart_txd    : out std_logic    -- AG24, FPGA TX -> board RX
+        uart_txd    : out std_logic;   -- AG24, FPGA TX -> board RX
+
+        -- RGB LED, blue and green (docs/mkr_pinout.md): the PR demo's
+        led_b       : out std_logic;   -- AK20
+        led_g       : out std_logic    -- AK21
     );
 end entity niosv_zephyr_top;
 
@@ -207,6 +218,15 @@ architecture rtl of niosv_zephyr_top is
     signal debug_lo_sync_0, debug_lo_sync_1   : std_logic_vector(31 downto 0) := (others => '0');
     signal debug_hi_sync_0, debug_hi_sync_1   : std_logic_vector(31 downto 0) := (others => '0');
     signal timeouts_sync_0, timeouts_sync_1   : std_logic_vector(31 downto 0) := (others => '0');
+
+    -- partial reconfiguration demo: pio_pr_ctrl's bits (cpu clock) - 0 freeze
+    -- the region's outputs, 1 hold the region in reset - into clk_clk's domain
+    signal pr_ctrl           : std_logic_vector(1 downto 0);
+    signal pr_ctrl_sync_0    : std_logic_vector(1 downto 0) := "00";
+    signal pr_ctrl_sync_1    : std_logic_vector(1 downto 0) := "00";
+    attribute altera_attribute : string;
+    attribute altera_attribute of pr_ctrl_sync_0 : signal is "-name SYNCHRONIZER_IDENTIFICATION FORCED";
+    signal region_led_b, region_led_g : std_logic;
 
 begin
 
@@ -513,7 +533,41 @@ begin
             hr_status_export   => status_sync_1,
             hr_debug_lo_export => debug_lo_sync_1,
             hr_debug_hi_export => debug_hi_sync_1,
-            hr_timeouts_export => timeouts_sync_1
+            hr_timeouts_export => timeouts_sync_1,
+
+            pr_ctrl_export     => pr_ctrl
         );
+
+    ----------------------------------------------------------------------
+    -- Partial reconfiguration demo. The region (partition "blinker", a
+    -- reserved core-only Logic Lock region - build_niosv_project.tcl) is one
+    -- instance of entity blinker: persona "blue" in the base revision,
+    -- "green" in impl_green (hw/pr/build_personas.sh). Its outputs go
+    -- through the freeze here, in the static region: while software
+    -- reconfigures it (pio_pr_ctrl: freeze + reset, PR, reset off, freeze
+    -- off) the LEDs are held off and the region's registers in reset.
+    process (clk_clk)
+    begin
+        if rising_edge(clk_clk) then
+            pr_ctrl_sync_0 <= pr_ctrl;
+            pr_ctrl_sync_1 <= pr_ctrl_sync_0;
+        end if;
+    end process;
+
+    pr_demo : if g_pr_demo generate
+        u_blinker : entity work.blinker
+            port map (
+                clk   => clk_clk,
+                reset => pr_ctrl_sync_1(1),
+                led_b => region_led_b,
+                led_g => region_led_g
+            );
+    else generate
+        region_led_b <= '0';
+        region_led_g <= '0';
+    end generate;
+
+    led_b <= g_led_on when region_led_b = '1' and pr_ctrl_sync_1(0) = '0' else not g_led_on;
+    led_g <= g_led_on when region_led_g = '1' and pr_ctrl_sync_1(0) = '0' else not g_led_on;
 
 end architecture rtl;

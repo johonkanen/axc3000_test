@@ -53,6 +53,11 @@ set opt_small_ocram 0
 if {[info exists ::small_ocram]} { set opt_small_ocram $::small_ocram }
 set opt_fpu 0
 if {[info exists ::fpu]} { set opt_fpu $::fpu }
+#   ::pr_demo 1       PR_DEMO=1 - the Partial Reconfiguration Controller IP
+#                     (pr0, Avalon-MM, 0xD0000) for the LED blinker region
+#                     (niosv_zephyr_top.vhd, hw/pr/)
+set opt_pr_demo 0
+if {[info exists ::pr_demo]} { set opt_pr_demo $::pr_demo }
 
 add_instance cpu0 intel_niosv_g
 set_instance_parameter_value cpu0 clockFrequency [expr {double($cpu_hz)}]
@@ -292,5 +297,37 @@ add_interface uart_axi axi4lite start
 set_interface_property uart_axi EXPORT_OF uart_axi.m0
 add_interface uart_irq interrupt receiver
 set_interface_property uart_irq EXPORT_OF uart_irq.receiver_irq
+
+# ---------------------------------------------------------------- partial reconfiguration
+# pio_pr_ctrl (always, 0xA0040, 2 bits out -> niosv_zephyr_top): bit 0 freezes
+# the reconfigurable region's outputs, bit 1 holds it in reset - set both
+# before a PR, release reset then freeze after (hw/pr/README.md).
+add_instance pio_pr_ctrl altera_avalon_pio
+set_instance_parameter_value pio_pr_ctrl direction Output
+set_instance_parameter_value pio_pr_ctrl width 2
+set_instance_parameter_value pio_pr_ctrl resetValue 0
+add_connection cb.out_clk pio_pr_ctrl.clk
+add_connection rb.out_reset pio_pr_ctrl.reset
+add_connection rr0.ninit_done pio_pr_ctrl.reset
+add_connection cpu0.data_manager pio_pr_ctrl.s1
+set_connection_parameter_value cpu0.data_manager/pio_pr_ctrl.s1 baseAddress 0x000A0040
+add_interface pr_ctrl conduit end
+set_interface_property pr_ctrl EXPORT_OF pio_pr_ctrl.external_connection
+
+# pr0 (PR_DEMO only): Altera's Partial Reconfiguration Controller IP - word 0
+# the bitstream (write, back-pressured), word 1 the CSR (bit 0 start; status
+# in 3:1: 001 busy, 010 in progress, 011 done, 100/110 error), word 2 the
+# version, 5-A cycle counters. Its own path into the SDM (not mbox0).
+if {$opt_pr_demo} {
+    add_instance pr0 altera_s10_pr
+    set_instance_parameter_value pr0 TARGET_INTERFACE Avalon-MM
+    set_instance_parameter_value pr0 DATA_WIDTH 32
+    set_instance_parameter_value pr0 ENABLE_INTERRUPT No
+    add_connection cb.out_clk pr0.clk
+    add_connection rb.out_reset pr0.reset
+    add_connection rr0.ninit_done pr0.reset
+    add_connection cpu0.data_manager pr0.avmm_slave
+    set_connection_parameter_value cpu0.data_manager/pr0.avmm_slave baseAddress 0x000D0000
+}
 
 save_system {niosv_zephyr_sys.qsys}
